@@ -1084,8 +1084,7 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 		for child_widget in self.find_withtag("text"):
 			self.itemconfigure(child_widget, font=(self._fontFace, int(self._fontSize*self._scale)))
 		bb = list(self.bbox("all"))
-		bb[2] += 800
-		bb[3] += 600
+		bb = [0, 0, bb[2]+800, bb[3]+600]
 		self.configure(scrollregion=bb)
 #		print(self.fontSize)
 
