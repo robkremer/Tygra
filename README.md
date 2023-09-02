@@ -8,6 +8,11 @@ there types dictate thier *attributes* such as fill colour, border colour, text 
 shape, aspect ratio, and minimum size as well as thier properties such the tranitive,
 symetric, and reflexive properties or relations. 
 
+![Screenshot of a tygra file window (displaying some info about tygra iteself)]
+(images/sampleModel.png)
+
+![Screenshot of a tygra view window (displaying a view of the above model))
+
 The type of a node or relation is
 specified by drawing an *ISA* relation from the subsumed node or relation to the
 subsuming node or relation (where the subsumming node or relation must have the

@@ -14,9 +14,6 @@ from weakref import WeakValueDictionary
 from inspect import isabstract
 from math import ceil
 
-import matplotlib.path as mplPath
-import numpy as np
-
 ##########################################################################################
 ########## PERSISTENCE ###################################################################
 ##########################################################################################
@@ -281,6 +278,8 @@ def overlaps(rect1, rect2):
 	   	   overlapDim(rect1[1], rect1[3], rect2[1], rect2[3])
 
 def pointInPoly(pt, poly):
+	import numpy as np
+	import matplotlib.path as mplPath
 	arr = []
 	for i in range(0, len(poly), 2):
 		arr.append([poly[i], poly[i+1]])
