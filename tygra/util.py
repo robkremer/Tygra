@@ -13,6 +13,21 @@ import tkinter as tk
 from weakref import WeakValueDictionary
 from inspect import isabstract
 from math import ceil
+import os
+import subprocess
+
+# State bits in events
+def s_CMD(s)  : return (s&0x18) != 0
+def s_SHIFT(s): return (s&0x1)  != 0
+def s_CTL(s)  : return (s&0x4)  != 0
+def s_ALT(s)  : return (s&0x88) != 0
+s_OPT = s_ALT
+
+# Graphical representations for control keys
+CHAR_SHIFT = u'\u21E7'
+CHAR_CTL   = u'\u2388'
+CHAR_ALT   = u'\u2387'
+CHAR_CMD   = u'\u2318'
 
 ##########################################################################################
 ########## PERSISTENCE ###################################################################
@@ -109,12 +124,12 @@ class PO(ABC):
 		
 		@classmethod
 		def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> tuple[list[Any], dict[str, Any]]
-			- Returns an (*args, **kwargs) tuple used in constructing on object of the class
+			- Returns an (\*args, \*\*kwargs) tuple used in constructing on object of the class
 			  who's name is *elem*'s tag's name, based on the *elem*.)
 			  
 		@classmethod
 		def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> tuple[list[Any], dict[str, Any]]:
-			- Returns an (*args, **kwargs) tuple for the constructor of the class found in the element's name.
+			- Returns an (\*args, \*\*kwargs) tuple for the constructor of the class found in the element's name.
 			  Called before the object to be unserialized is constructed and the values are 
 			  used in it's construction.
 	
@@ -211,7 +226,7 @@ class PO(ABC):
 	@abstractmethod
 	def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> tuple[list[Any], dict[str, Any]]:
 		"""
-		Returns an (*args, **kwargs) tuple for the constructor of the class found in the element's name.
+		Returns an (\*args, \*\*kwargs) tuple for the constructor of the class found in the element's name.
 		"""
 		pass
 	
@@ -294,6 +309,12 @@ def expandRect(rect:list, spacing:list):
 			 rect[1]-spacing[1],
 			 rect[2]+spacing[2],
 			 rect[3]+spacing[3]]
+	
+def normalizeRect(rect:list[float]) -> list[float]:
+	return [rect[0] if rect[0]<rect[2] else rect[2],
+			rect[1] if rect[1]<rect[3] else rect[3],
+			rect[2] if rect[0]<rect[2] else rect[0],
+			rect[3] if rect[1]<rect[3] else rect[1]]
 		
 ##########################################################################################
 ########## USER INTERFACE ################################################################
@@ -326,6 +347,27 @@ def eventEqual(e1, e2):
 			e1.y_root == e2.y_root and \
 			e1.type   == e2.type
 			
+##########################################################################################
+########## SOUNDS ########################################################################
+##########################################################################################
+
+def play(soundFile:Optional[str]):
+	"""
+	Plays a sound file. So far, this is only implemented for mac.
+	
+	:param soundFile: May have the following values:
+		* None: plays "/System/Library/Sounds/Sosumi.aiff" (an error beep).
+		* Just a file name: (not containing any slashes ("/")) looks in /System/Library/Sounds/
+			for the file.
+		* A path: (containing slashes ("/")) just tries to play that file.
+	"""
+	if soundFile is None or len(soundFile)==0:
+		soundFile = '/System/Library/Sounds/Sosumi.aiff'
+	elif soundFile.find('/') < 0:
+		soundFile = '/System/Library/Sounds/'+soundFile
+	subprocess.Popen(["afplay", soundFile])
+
+
 ##########################################################################################
 ########## LIST MANIPULATION #############################################################
 ##########################################################################################

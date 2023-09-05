@@ -1,5 +1,27 @@
 """
-**attributes** module
+Implements an attributes dictionary from string key names to arbitrary type values. An interactive user
+dialog to edit the attributes is also implemented. Each attribute enjoys "properties", including:
+
+* system: (bool) indicating the attribute is a system attribute and shouldn't be user editable.
+* editable: (bool) specifying the attribute is editable.
+* final: (bool) indicating the attribute cannot be overridden by a subtype.
+* kind:	(str) The type of the attribute, currently 'text', 'mtext' (multi-line
+  text), 'int', 'color', 'set', 'bool', 'choices', or 'unknown'. If this argument is 
+  None, the kind will be inferred by the type of the *value* argument. 'choices' is 
+  inferred if the value is a list of str, where the first one in the list is the actual value.
+* default:	(Any) The attribute value is not inheritable, but the child gets the
+  attribute as locally instantiated with the default value.
+* validator: (f()|None) None, or a function taking a single argument (the proposed 
+  value) and either raising an exception or returning the value (possibly modified).
+  In the case of the 'choices' *kind*, if None is passed to the validator, it should
+  return a list of str of all the possible choices. 'choices' is the only kind
+  that requires a validator. However, if a list is passed as the *value*, then this
+  class will construct its own validator with the obvious interpretation of the value
+  must be in that list (first list item is taken as the initial value, and that first
+  item can be repeated in the list to indicate it doesn't fall first in the choice
+  menu in the edito dialog.
+  
+----
 """
 import xml.etree.ElementTree as et
 from ast import literal_eval
@@ -7,9 +29,8 @@ from typing import Any, Optional, Iterable, Callable
 from tygra.util import PO, AddrServer
 from abc import ABC, abstractmethod # Abstract Base Class
 import tkinter as tk
-from tkinter import ttk
 from tkinter import colorchooser
-import tkinter.font as font
+from tkinter import ttk
 from tygra.app import SYS_ATTRIBUTES
 from collections import namedtuple
 import re
@@ -37,6 +58,7 @@ class Attributes(PO):
 	
 	class Item(PO):
 		"""
+		A class to represent a single element of an attributes list.
 		"""
 		def __init__(self, key, value, final=False, editable=True, kind:Optional[str]=None,
 						default:Any=None, validator:Callable[[Optional[Any]],Any]=None):
@@ -44,21 +66,23 @@ class Attributes(PO):
 			:param key:		The name of the attribute (the redundant key for the dictionary.
 			:param value:	The value of the attribute.
 			:param final:	This attribute value cannot be overridden by a subtype.
-			:param editable:This attribute can/cannot be edited. This attribute DOES NOT inherit.
-			:kind:			The type of the attribute, currently 'text', 'mtext' (multi-line
-							text), 'int', 'color', 
-							'set', 'bool', 'choices', or 'unknown'. If this argument is 
-							None, the kind will be inferred by the type of the *value* 
-							argument. 'choices' is inferred if the value is an list of
-							str, where the first one in the list is the actual value.
-			:default:		The attribute value is not inheritable, but the child gets the
-							attribute as locally instantiated with the default value.
-			:validator:		None, or a function taking a single argument (the proposed 
-							value) and either raising an exception or returning the value
-							(possibly modified). In the case of the 'chouce' *kind*, if
-							None is passed to the validator, it should return a list of
-							str of all the possible choices. 'choices' is the only kind
-							that requires a validator.
+			:param editable: This attribute can/cannot be edited. This attribute DOES NOT inherit.
+			:param kind:	The type of the attribute, currently 'text', 'mtext' (multi-line
+				text), 'int', 'color', 'set', 'bool', 'choices', or 'unknown'. If this argument is 
+				None, the kind will be inferred by the type of the *value* argument. 'choices' is 
+				inferred if the value is a list of str, where the first one in the list is the actual value.
+			:param default:	The attribute value is not inheritable, but the child gets the
+				attribute as locally instantiated with the default value.
+			:param validator: None, or a function taking a single argument (the proposed 
+				value) and either raising an exception or returning the value (possibly modified).
+				In the case of the 'choice' *kind*, if None is passed to the validator, it should
+				return a list of str of all the possible choices. 'choices' is the only kind
+				that requires a validator. However, if a list is passed as the *value*, then this
+				class will construct its own validator with the obvious interpretation of the value
+				must be in that list (first list item is taken as the initial value, and that first
+				item can be repeated in the list to indicate it doesn't fall first in the choice
+				menu in the edito dialog.
+			
 			"""
 			self.key = key
 			self.value = value
@@ -99,12 +123,23 @@ class Attributes(PO):
 			self.kind = kind
 			
 		def _doChoicesList2ValAndList(self, choices:list[str]) -> tuple[str,list]:
+			"""
+			A choices list is often specifically ordered, but the first item is the current value.
+			Therefore if we find the first element repeated in the rest of the list, we take the
+			first item as the current value, and the rest of the list as the choices list.  If it
+			is not repeated, we take the first item as the value and the entire list as the 
+			choices list.
+			"""
 			value = choices[0]
 			if choices[0] in choices[1:]:
 				choices = choices[1:]
 			return value, choices.copy() 
 			
 		def _choiceValidator(self, val:str) -> str:
+			"""
+			An internal choices validator in the event the user doesn't supply a validator for a
+			choices kind.
+			"""
 			if val is None:
 				return self._choices
 			if val not in self._choices:
@@ -191,7 +226,7 @@ class Attributes(PO):
 		:type  owner: AttrOwner
 		"""
 		super().__init__()
-		self.setOwner(owner)
+		self._setOwner(owner)
 		self.attrs:dict[str,Any] = dict()
 		self.observers:list[AttrObserver] = []
 		# run through to let the *defaults* settle in
@@ -202,7 +237,7 @@ class Attributes(PO):
 	
 	def xmlRepr(self) -> et.Element:
 		elem = et.Element(type(self).__name__)
-		for k,v in self.attrs.items():
+		for _,v in self.attrs.items():
 			elem.append(v.xmlRepr()) #k))
 		return elem
 	
@@ -230,15 +265,24 @@ class Attributes(PO):
 	### OBSERVERS ########################################################################
 
 	def addObserver(self, observer:AttrObserver):
+		"""
+		Add an observer.
+		"""
 		self.observers.append(observer)
 		
 	def removeObserver(self, observer:AttrObserver):
+		"""
+		Remove an observer. Only prints a warning if the observer isn't on the observers list.
+		"""
 		if observer in self.observers:
 			self.observers.remove(observer)
 		else:
 			print('Attributes.removeObserver() called with an unregistered observer.')
 			
 	def notifyObservers(self, key, value):
+		"""
+		Notify all the observers on the observers list.
+		"""
 		for ob in self.observers:
 			try:
 				ob.notifyAttrChanged(self, key, value)
@@ -255,15 +299,15 @@ class Attributes(PO):
 		if key in self.attrs: return
 		self.notifyObservers(key, self.get(key))
 	
-	def update(self):
-		keys = self.keys()
-		for k in keys:
-			r = self.get(k)
-			self.notifyObservers(k, r)
+#	def update(self):
+#		keys = self.keys()
+#		for k in keys:
+#			r = self.get(k)
+#			self.notifyObservers(k, r)
 
 	### PRIMITIVE OPERATIONS #############################################################
 
-	def setOwner(self, owner:AttrOwner):
+	def _setOwner(self, owner:AttrOwner):
 		if owner is not None and not isinstance(owner, AttrOwner):
 			raise TypeError(f'Attributes.setOwner(): owner must be an instance of AttrOwner (parameter\'s type is {type(owner).__name__}).')
 		self.owner = owner
@@ -292,6 +336,17 @@ class Attributes(PO):
 		:type  final: bool
 		:param editable: the attribute is editable
 		:type  editable: bool
+		:param kind: type of the attribute
+		:type kind: str
+		:param suppressNotify: Don't notify the observers that there have been changes.
+		:type suppressNotify: bool
+		:param system: the attribute is a system attribute so don't show it to the user.
+		:type system: bool
+		:param validator: A validator function for the attribute value
+		:type validator: Callable
+		:param default: The attribute value is not inheritable, but the child gets the
+			attribute as locally instantiated with the default value.
+		:type default: Any
 		:return: None
 		:rtype: None
 		"""
@@ -305,6 +360,9 @@ class Attributes(PO):
 # 		self.notifyObservers(name, value) # config() wouldn't have done it because the it didn't see the attribute change.
 
 	def remove(self, name:str):
+		"""
+		Remove the attibute with key *name*.
+		"""
 		if name in self.attrs:
 			self.attrs.pop(name)
 
@@ -320,7 +378,7 @@ class Attributes(PO):
 		Most of arguments are as per the constructor, but there are some control arguments:
 		:param suppressNotify: Don't notify the observers that there have been changes.
 		:param _record: [Item] Use the value of this parameter as a template to update all
-			the other parameters.
+		the other parameters.
 		"""
 		if _record and (value or final or editable or kind):
 			raise AttributeError('Attributes.config(): argument "_record" is inconsistent with arguments all other arguments.')
@@ -358,6 +416,9 @@ class Attributes(PO):
 			self.notifyObservers(key, value)
 			
 	def _get(self, key, includeLocals=True, includeInherited=True):
+		"""
+		An internal getter that returns the entire *Item* record for *key*.
+		"""
 		cumulativeValue = []
 		cumulativeRecord = None
 		if includeLocals:
@@ -403,32 +464,54 @@ class Attributes(PO):
 	### OPERATIONS #######################################################################
 		
 	def get(self, key, includeLocals=True, includeInherited=True):
+		"""
+		Public getter.  Returns the value for the key.
+		
+		:param key: The key to find the value for.
+		:param includeLocals: Suppress looking at local keys by setting this *False*. Useful
+			if you want to check if this is an inherited value.
+		:param includeInterited: Suppress looking for inherited key values by setting this to *False*.
+			Useful if you want to check for only local values.
+		"""
 		ret = self._get(key, includeLocals=includeLocals, includeInherited=includeInherited)
 		return ret.value if ret else None
 
 	def isEditable(self, key):
+		"""Returns *true* iff the *key* is editable."""
 		item = self._get(key)
 		return item.editable if item is not None else None
 
 	def isFinal(self, key):
+		"""Returns *true* iff the *key* is final."""
 		item = self._get(key)
 		return item.final if item is not None else None
 		
 	def getKind(self, key):
+		"""Returns the *kind* of the key as a str."""
 		item = self._get(key)
 		return item.kind if item is not None else None		
 
 	def isSystem(self, key):
+		"""Returns *true* iff the *key* is system."""
 		item = self._get(key)
 		return item.system if item is not None else None		
 
 	def getDefault(self, key):
+		"""Returns the default value for this key."""
 		item = self._get(key)
 		return item.default if item is not None else None		
 
 	### DICTIONARY-LIKE OPERATIONS #######################################################
 		
 	def keys(self, includeLocals=True, includeInherited=True):
+		"""
+		Standard *keys()* function for an iterator, with additional filter.
+		
+		:param includeLocals: Suppress looking at local keys by setting this *False*. Useful
+			if you want to check if this is an inherited value.
+		:param includeInterited: Suppress looking for inherited key values by setting this to *False*.
+			Useful if you want to check for only local values.
+		"""
 		keys = []
 		if includeLocals:
 			for k in self.attrs.keys():
@@ -441,31 +524,39 @@ class Attributes(PO):
 		return keys
 
 	def items(self, includeLocals=True, includeInherited=True):
+		"""
+		Standard *items()* function for an iterator with additional filters. Returns a list
+		of key/value pairs.
+		
+		:param includeLocals: Suppress looking at local keys by setting this *False*. Useful
+			if you want to check if this is an inherited value.
+		:param includeInterited: Suppress looking for inherited key values by setting this to *False*.
+			Useful if you want to check for only local values.
+		"""
 		it = dict()
 		if includeLocals:
 			for k,v in self.attrs.items():
-#				it.append((k,v.value))
 				it[k] = v.value
 		if includeInherited:
 			for p in self.getParents():
 				for k,v in p.items():
 					if (k not in it):
-#						it.append((k,v))
 						it[k] = v
 						print(f'too many: {k}: {v}.')
 		return it.items()
 
 	def _items(self, includeLocals=True, includeInherited=True):
+		"""
+		Internal version of *items()* that returns key/Item record pairs.
+		"""
 		it = dict()
 		if includeLocals:
 			for k,v in self.attrs.items():
-#				it.append((k,v))
 				it[k] = v
 		if includeInherited:
 			for p in self.getParents():
 				for k,v in p._items():
 					if (k not in it):
-#						it.append((k,v))
 						it[k] = v
 		return it.items()
 
@@ -479,7 +570,6 @@ class Attributes(PO):
 		IMPORTANT: Note that if you set a value in an inherited item, a new record will
 		be created in THIS Attributes structure.
 		"""
-		oldVal = self[key]
 		if key in self.attrs:
 			self.config(key, value=value)
 		else:
@@ -512,6 +602,13 @@ class Attributes(PO):
 	### GUI ##############################################################################
 
 	def edit(self, parentWindow, title=None, disabled=False):
+		"""
+		Put up a GUI dialog to edit the *Attributes*
+		
+		:param parentWindow: A parent for dialog.
+		:param title: A title to put on the dialog window.
+		:param disabled: Setting this to *False* will still show the dialog, but all fields will the locked (uneditable).
+		"""
 		print(f"Attributes.edit(): {self.__str__(True)}")
 		editor = AttrEditor(parentWindow, self, title=title)
 		editor.show(disabled=disabled)
@@ -545,7 +642,7 @@ class AttrEditor(tk.Toplevel):
 			return False
 
 	def colorChooser(self, tkVar, button):
-		color = tk.colorchooser.askcolor(initialcolor=tkVar.get())
+		color = colorchooser.askcolor(initialcolor=tkVar.get())
 		color = color[1]
 		if color is not None:
 			tkVar.set(color)
@@ -633,13 +730,13 @@ class AttrEditor(tk.Toplevel):
 		self.columnconfigure(cKind,  weight=0)
 
 		inherited = dict(self.attrs._items(includeLocals=False))
-		locals    = dict(self.attrs._items(includeInherited=False))
+		localVals    = dict(self.attrs._items(includeInherited=False))
 		
 		i = 0
 		ttk.Label(self, text="Local", font=('Helvetica', 18, 'bold')) \
 			.grid(column=cEdit, row=i, sticky=tk.W, padx=0, pady=0)
 		i += 1
-		for k,v in locals.items():
+		for k,v in localVals.items():
 			if v.system: continue # hide system attributes
 			makeLabel(k, v, cLabel, i)
 			ed = makeEditor(k, v, cEdit, i, disabled=disabled or not v.editable)
@@ -659,7 +756,7 @@ class AttrEditor(tk.Toplevel):
 		i += 1
 		for k,v in inherited.items():
 			if v.system: continue # hide system attributes
-			if k not in locals:
+			if k not in localVals:
 				makeLabel(k, v, cLabel, i)
 				ed = makeEditor(k, v, cEdit, i, disabled=True)
 				if not v.final and not disabled:

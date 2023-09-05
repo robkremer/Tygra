@@ -1,9 +1,24 @@
 #! /usr/bin/env python3
+"""
+This module contains the 3 fundamental container objects for **tygra**:
+
+*TypedGraphsContainer*:
+   Represents a file and may contain several models and their associated views
+   
+*TGModel*:
+   Represents a model and contains nodes and relations (but is no direction associated with a window or frame.
+   
+*TGView*:
+   Represents a view of some model and contains visual representations of nodes and relations in its model.
+   It DOES have an associated window or frame, and functions as a graph editor, viewing and possibly
+   editing its model.
+   
+---------
+"""
 import sys
 import os
 import tkinter as tk
 from tkinter import ttk
-#from tkinter import messagebox
 from tkinter import filedialog
 from collections import namedtuple
 from math import sqrt
@@ -14,7 +29,8 @@ from typing import Any, Optional, Type, Union, Tuple, Callable, Iterable, TypeVa
 
 sys.path.append(os.path.dirname(__file__))
 from tygra.weaklist import WeakList
-from tygra.util import PO, IDServer, AddrServer, Categories, bindRightMouse, eventEqual
+from tygra.util import PO, IDServer, AddrServer, Categories, bindRightMouse, eventEqual, flattenPairs,\
+	s_SHIFT, normalizeRect
 from tygra.mobjects import MObject, ModelObserver
 from tygra.vobjects import VObject
 from tygra.mnodes import MNode
@@ -39,9 +55,21 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 	### Constructor and helpers ##########################################################
 	
 	def __init__(self, filename:Optional[str]=None):
+		"""
+		Returns a tk.TK window for the application. The contains a frame listing the models
+		of views contained in a single file.
+		
+		:param filename: May have the following values:
+		
+			* the string "<new>": a new (empty) model and a single view of it are created;
+			* a filename: attempts to open the file and interpret it as models and views;
+			* *None*: A file open dialog box is presented and the result (if a file is 
+					selected) proceeds as "filename", or (if the dialog box is cancelled)
+					proceed as "<new>".
+		"""
 		super().__init__()
 		self.option_add('*tearOff', tk.FALSE)
-		self.menu = menu=self.makeMenu()
+		self.menu = self.makeMenu()
 		self.config(menu=self.menu)
 		self.createcommand('tk::mac::ShowPreferences', self.showPreferencesDialog)
 		self.createcommand('tk::mac::ShowHelp', self.showHelp)
@@ -75,10 +103,11 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		
 		self.title(f'{app.APP_LONG_NAME}{(": "+os.path.basename(self.filename)) if self.filename is not None else ""}')
 		self.logger.write(f"{app.APP_LONG_NAME} file window initialized.")
-
+		
 	### Directory Frame and helpers ######################################################
 
 	class ViewRecord:
+		"""A veru simple record class for view information."""
 		def __init__(self, viewName:tk.StringVar, viewData):
 			assert 	viewData is None or \
 					isinstance(viewData, et.Element) or \
@@ -86,6 +115,7 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 			self.viewName = viewName
 			self.viewData = viewData
 	class ModelRecord:
+		"""A very simple record class for Model information."""
 		def __init__(self, modelName:tk.StringVar, modelData, viewRecords:dict=dict()):
 			assert 	modelData is None or isinstance(modelData, TGModel)
 			self.modelName = modelName
@@ -123,9 +153,6 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 			self.readModelsAndViews(root)
 			
 		# set up the grid in the frame
-#		tk.Grid.columnconfigure(self.topFrame, 0, weight=0)
-#		tk.Grid.columnconfigure(self.topFrame, 1, weight=1)
-#		tk.Grid.columnconfigure(self.topFrame, 2, weight=0)
 		self.topFrame.columnconfigure(0, weight=0)
 		self.topFrame.columnconfigure(1, weight=1)
 		self.topFrame.columnconfigure(2, weight=0)
@@ -162,11 +189,16 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 # TODO: set up reenabling the buttons when a view is closed
 
 	def checkFileSignature(self, tree:et.Element) -> bool:
+		"""Determine if *tree* is really a tygra xml file."""
 		root = tree.getroot()
 		return root.tag == "typedgraphs"
 	
 	def readDirectory(self, root:et.Element):
-		# read the directory if there is one
+		"""
+		Read the directory in *root* if there is one, placing the the resultant list of model and view
+		records in *self.directory.  If there is not directory, *self.directory* will be an
+		empty *dict*.
+		"""
 		self.directory:dict[str,TypedGraphsContainer.ModelRecord] = dict()
 		directoryElem = root.find('directory')
 		if directoryElem is not None:
@@ -179,7 +211,11 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 						TypedGraphsContainer.ViewRecord(tk.StringVar(value=view.get('name')), None)
 
 	def readModelsAndViews(self, root:et.Element):
-		# read in the model and views elements
+		"""
+		Read in the model and view elements from *root*, filling out their in *self.directory*.
+		In the case of models, they models, the actual *TGModel* is constructed, whereas
+		views are placed in *self.directory* only as their *ElemementTree.Element* structure.
+		"""
 		maxID = 0
 		models = root.findall('TGModel')
 		views = root.findall('TGView')
@@ -205,6 +241,9 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 	### Directory popup menus and helpers ################################################
 
 	def doModelButton(self, modelRecord:ModelRecord, row:int, id:str):
+		"""
+		Handle a "model" button event by putting up a popup menu for "new view" and "delete model".
+		"""
 		x, y, width, height = self.topFrame.grid_bbox(row=row, column=2)
 		m = tk.Menu(self.topFrame)
 		m.add_command(label="new view", command=lambda mr=modelRecord: self.doNewView(mr))
@@ -214,6 +253,9 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		m.post(x+5, y+10)
 		
 	def doViewButton(self, viewRecord:ViewRecord, row:int, id:str):
+		"""
+		Handle a "view" button event by putting up a popup menu for "open  view" and "delete view".
+		"""
 		x, y, width, height = self.topFrame.grid_bbox(row=row, column=2)
 		m = tk.Menu(self.topFrame)
 		m.add_command(label="open view", command=lambda vr=viewRecord, r=row: self.doOpenView(vr, r))
@@ -225,6 +267,10 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		m.post(x+5, y+10)		
 
 	def doOpenView(self, rec:ViewRecord, row:int):
+		"""
+		Handle the event of the user selecting "open view" from the "view" popup menu by calling 
+		*self.openView()*.  Throws exceptions if unexpected data times are encountered.
+		"""
 		if isinstance(rec.viewData, et.Element):
 			rec.viewData = self.openView(rec.viewData)
 		elif isinstance(rec.viewData, TGView):
@@ -233,6 +279,10 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 			raise TypeError(f"TypedGraphsContainer.doOpenView(): Unexpected type: {type(rec.viewData).__name__}.")
 
 	def doNewView(self, modelRecord:ModelRecord):
+		"""
+		Creates a brand new view for the *model*, updating *self.directory*, opening the *TGView* window,
+		and populating it with nodes from the model that directly inherit from *topNode*. 
+		"""
 		view = TGView(self, self, modelRecord.modelData, self)
 		self.directory[modelRecord.modelData.idString].viewRecords[view.idString] = \
 				TypedGraphsContainer.ViewRecord(tk.StringVar(value=view.idString), view)
@@ -244,6 +294,10 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		layouts.IsaHierarchyHorizontalCompressed(view)()
 		
 	def doNewModel(self):
+		"""
+		Creates a brand new model, updating *self.directory*, then calls *self.makeRecordsFrame()*
+		to update the records in the *TypedGraphsContainter* window. 
+		"""
 		model = TGModel(self, self)
 		view = TGView(None, self, model)
 		viewRecord = {view.idString: TypedGraphsContainer.ViewRecord(
@@ -258,7 +312,12 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 				model, viewRecord)
 		self.makeRecordsFrame()
 		
+	# TODO: when a view id deleted, there is nothing done about checking for and closing its view window.
 	def doDeleteView(self, rec:ViewRecord, id:str):
+		"""
+		Deletes the "rec" from *self.directory* and calls *self.RecordsFrame() to update the 
+		*TypedGraphsContainter* window.
+		"""
 		for k, mr in self.directory.items():
 			if id in mr.viewRecords:
 				mr.viewRecords.pop(id)
@@ -267,19 +326,25 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		self.logger.write(f'TGContainer.deDeleteModel(): Can\'t find view id "{id}" to remove.')
 		
 	def doDeleteModel(self, modelRecord:ModelRecord, id:str):
+		"""
+		Deletes *modelRecord* from *self.directory* and calls *self.RecordsFrame() to update the 
+		*TypedGraphsContainter* window.
+		"""
 		self.directory.pop(id)
 		self.makeRecordsFrame()
 		
 	def setModelName(self, model, name:str):
+		"""Sets the entry for *model* to *name* in *self.directory*."""
 		self.directory[model.idString].modelName.set(name)
 				
 	def setViewName(self, view, name:str):
+		"""Sets the entry for *view* to *name* in *self.directory*."""
 		self.directory[view.model.idString].viewRecords[view.idString].viewName.set(name)
 
 	### Persistence ######################################################################
 
 	def openFile(self, filename:Optional[str]=None) -> tuple[Optional[str], Optional[et.Element]]:
-		"""		
+		"""
 		:param filename: A filename to read. If this is *None* using the open-file dialog
 					to get an actual filename.
 		:return: A tuple of (filename, et.Element) or (None, None) if the user cancels.
@@ -290,13 +355,13 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		"""
 		if filename is None or len(filename) == 0:
 			if self.filename:
-				dir, fname = os.path.split(self.filename)
+				directory, fname = os.path.split(self.filename)
 			else:
-				dir ='.'
+				directory ='.'
 				fname=None
 			filename = tk.filedialog.askopenfilename(parent=self,
 						title='TG Open File', 
-						initialdir=dir,
+						initialdir=directory,
 						initialfile=fname,
 						filetypes=[('TG', f'*.{app.APP_FILE_EXTENSION}'), ('XML', '*.xml')])
 		if filename == None or len(filename) == 0:
@@ -319,11 +384,19 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 				return None, None
 				
 	def openView(self, elem:et.Element):
+		"""
+		Given a TGView element, return a *TGView* object.
+		"""
 		if elem.tag != "TGView":
 			raise ValueError(f'TypedGraphsContainer.openView(): argument is not a TGView element.')
 		return PO.makeObject(elem, self, TGView)
 		
 	def notifyViewDeleted(self, view):
+		"""
+		The view is notifying us that it's been deleted. Remove the view from *self.views*, and change
+		*self.directory* to refer to the view by it's element (using *view.xmlRepr()*), rather than
+		its *TGView* representation.
+		"""
 		if view in self.views:
 			self.views.remove(view)
 		else:
@@ -333,10 +406,16 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		viewRecord.viewData = view.xmlRepr()
 		
 	def openNewInstance(self, filename:Optional[str]=None):
+		"""
+		Open a new instance of a *TypedgraphsContainer* and call it *mainloop()*.
+		"""
 		root = TypedGraphsContainer(filename)
 		root.mainloop()
 
 	def saveFile(self):
+		"""
+		Save this instance into a file using the *tk.filedialog.asksaveasfilename()* dialog.
+		"""
 		if self.filename:
 			dir, file = os.path.split(self.filename)
 		else:
@@ -394,7 +473,8 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 
 	### Menu Bar menus and helpers #######################################################
 
-	def makeMenu(self):
+	def makeMenu(self) -> tk.Menu:
+		"Construct and return the menubar menu for the app. This method does NOT add the menu to the app menu bar."
 		menubar = tk.Menu(self)
 		
 		appmenu = tk.Menu(menubar, name="apple")
@@ -419,15 +499,22 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		menubar.add_cascade(menu=windowmenu, label='Window')
 
 		helpmenu = tk.Menu(menubar, name="help")
-		helpmenu.add_command(label="Help Index", command=self.donothing)
+		helpmenu.add_command(label="Help Index", command=self.showHelp)
 		menubar.add_cascade(label="Help", menu=helpmenu)
 
 		return menubar
 		
-	def donothing(self):
-		pass
+	# TODO: Implement application help
+	def showHelp(self):
+		"""
+		Shoow help info for the application.
+		"""
+		self.logger.write("TypedGraphsContainer.showHelp(): not implemented.", level="warning")
 		
 	def showAbout(self):
+		"""
+		Show the about information.
+		"""
 		tk.messagebox.showinfo(
 			parent=self,
 			icon="info",
@@ -436,13 +523,11 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 						  by Rob Kremer''',
 			)
 			
+	# TODO: implement the preferences dialog
 	def showPreferencesDialog(self):
-		pass
+		self.logger.write("TypedGraphsContainer.showPreferencesDialog(): not implemented.", level="warning")
 
-	def showHelp(self):
-		pass
-
-##########################################################################################
+#########################################################################################
 ################################## class TGModel #########################################
 ##########################################################################################
 
@@ -715,7 +800,7 @@ class TGModel(PO, IDServer):
 		
 class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 
-	makeRelationData = namedtuple('makeRelationData', 'node type')
+	makeRelationData = namedtuple('makeRelationData', 'node type lineID')
 	
 	def _clearIdLookupTable(self, addrServer, _id):
 		#debug
@@ -789,6 +874,9 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 		self.localLayoutName = "find free"
 		self.setLocalLayout(self.layoutObjects[self.localLayoutName], name=self.localLayoutName)
 		assert isinstance(self.localLayout, layouts.LayoutHieristic)
+		self.selected = set() # Used by VNodes for noting selection groups
+		self._scrolling = False
+		self._selectionBoxInfo = None
 
 		### windowing stuff
 		self.scrollRegion = (0, 0, 4000, 3000)
@@ -857,14 +945,16 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 		self.textArea.insert('end', msg)
 		self.textArea['state'] = 'disabled'
 		
-	def makeBindings(self):
-		#self.bind("<Button-1>", self.newNodeBegin)
-		#tgview.bind("<B1-Motion>", addLine)
+	def makeBindings(self):		
+		# For making relations
 		self.bind("<B1-ButtonRelease>", self.onB1_ButtonRelease)
+		self.bind("<Motion>", self.onMotion)
+		
+		# for popup menu
 		bindRightMouse(self, self.onRightMouse)  #lambda e: self.backgroundMenu(e).post(e.x_root, e.y_root))
 
 		# scroll using mouse click-and-drag
-		self.bind("<ButtonPress-1>", self.onButtonPress_1)
+		self.bind("<Button-1>", self.onButton_1)
 		self.bind("<B1-Motion>", self.onB1_Motion)
 		# scroll using two-finger drag
 		self.bind('<MouseWheel>', self.onMouseWheel)
@@ -1022,40 +1112,94 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 		if self.isEventHandled(event):
 			self.removeEventHandled(event)
 			return None
-
 		x, y = event.x, event.y
 		bgMenu = self.makeMenu(event)
 		bgMenu.post(event.x_root, event.y_root)
 		return bgMenu
 
 	def onB1_ButtonRelease(self, event):
-		if self._makingRelationFrom != None:
-			tags = self.gettags("current") # find selected objects
-			self.logger.write(f"graphs making relation for {tags}", level='info')
-			item = None
-			if isinstance(self._makingRelationFrom.node, VRelation):
-				for n in self.relations:
-					if n.tag in tags:
-						item = n # this object is selected
-			elif isinstance(self._makingRelationFrom.node, VNode):
-				for n in self.nodes:
-					if n.tag in tags:
-						item = n # this object is selected
-			if item != None:
-				self.makeRelation(self._makingRelationFrom.node, item, self._makingRelationFrom.type)
-			self._makingRelationFrom = None
-			
-	def onButtonPress_1(self, event):
 		if self.isEventHandled(event):
 			self.removeEventHandled(event)
 			return None
-		self.scan_mark(event.x, event.y)
+		self._scrolling = False
+		if self._makingRelationFrom is not None:
+			self.delete(self._makingRelationFrom.lineID)
+#			tags = self.gettags("current") # find selected objects
+			ids = self.find("closest", self.canvasx(event.x), self.canvasy(event.y)) # find selected objects
+			self.logger.write(f"graphs making relation for {ids}", level='info')
+			item = None
+			if isinstance(self._makingRelationFrom.node, VRelation):
+				typeList = self.relations
+			elif isinstance(self._makingRelationFrom.node, VNode):
+				typeList = self.nodes
+			else:
+				typeList = []
+			for n in typeList:
+				for id in ids:
+					tags = self.gettags(id)
+					self.logger.write(f"  graphs making relation for {tags}", level='info')
+					if n.tag in tags:
+						item = n # this object is selected
+						break
+				else:
+					continue  # only executed if the inner loop did NOT break
+				break  # only executed if the inner loop DID break
+			if item is not None:
+				self.makeRelation(self._makingRelationFrom.node, item, self._makingRelationFrom.type)
+			else:
+				self.logger.write("Relation's toNode must match the being a node/relation with the from Node", level='error')
+			self._makingRelationFrom = None
+			return
+		if self._selectionBoxInfo is not None:
+			bb = self.coords(self._selectionBoxInfo[0])
+			ids = self.find("overlapping", bb[0], bb[1], bb[2], bb[3]) if len(bb)==4 else []
+			for s in self.selected.copy(): # unselect everything
+				s.selected(False)
+			for id in ids:
+				for n in self.nodes+self.relations:
+					if n._shape.id == id:
+						n.selected(True, _multi=True)
+			self.delete(self._selectionBoxInfo[0])
+			self.selectionBoxInfo = None
+		
+			
+	def onMotion(self, event):
+		if self.isEventHandled(event):
+			self.removeEventHandled(event)
+			return None
+		if self._makingRelationFrom is not None:
+			self.coords(self._makingRelationFrom.lineID, 
+						flattenPairs([self.viewToWindow(self._makingRelationFrom.node.centerPt()), 
+											(self.canvasx(event.x), self.canvasy(event.y))]))
+			
+	def onButton_1(self, event):
+		if self._makingRelationFrom is not None: return
+		if self.isEventHandled(event):
+			self.removeEventHandled(event)
+			return None
+		if s_SHIFT(event.state):
+			self._scrolling = True
+			self.scan_mark(event.x, event.y)
+			return
+		for s in self.selected.copy(): # unselect everything
+			s.selected(False)
+		self._selectionBoxInfo = [self.create_rectangle(
+				self.viewToWindow(event.x, event.y, event.x, event.y),
+				fill="", width=3, outline="blue"), event.x, event.y, False]
+
 		
 	def onB1_Motion(self, event):
 		if self.isEventHandled(event):
 			self.removeEventHandled(event)
 			return None
-		self.scan_dragto(event.x, event.y, gain=1)
+		if self._scrolling:
+			self.scan_dragto(event.x, event.y, gain=1)
+			return
+		if self._selectionBoxInfo is not None:
+			self._selectionBoxInfo[3] = True
+#			bb = self.coords(self._selectionBoxInfo[0])
+			bb = normalizeRect([self._selectionBoxInfo[1], self._selectionBoxInfo[2], event.x, event.y])
+			self.coords(self._selectionBoxInfo[0], bb[0], bb[1], bb[2], bb[3])
 		
 	def onMouseWheel(self, event):
 		if self.isEventHandled(event):
@@ -1346,10 +1490,11 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 					self.logger.write(f'TGView.showAllModel(): Could not instantiate VObject for {type(mrel).__name__} {mrel.idString} "{mrel.attrs["label"]}": {type(ex).__name__}("{ex}")', level='warning', exception=ex)
 					
 	def makeRelationFrom(self, node:VNode, typ:Optional[MObject]=None):
-		if typ == None or isinstance(typ, MNode):
-			self._makingRelationFrom = TGView.makeRelationData(node, typ)
-		elif isinstance(typ, MRelation):
-			self._makingRelationFrom = TGView.makeRelationData(node, typ)
+		if typ is None or isinstance(typ, MNode) or isinstance(typ, MRelation):
+			lineID = self.create_line(
+				self.viewToWindow(flattenPairs([node.centerPt(), node.centerPt()])),
+				fill="cyan", width=3, arrow=tk.LAST)
+			self._makingRelationFrom = TGView.makeRelationData(node, typ, lineID)
 		else:
 			raise TypeError(f'TGView.makeRelationFrom(): "typ" argument must be a model object; got object of class {type(typ).__name__}.')
 	

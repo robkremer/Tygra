@@ -5,6 +5,7 @@ from io import TextIOWrapper
 import sys
 import os
 import traceback
+from tygra.util import play
 
 class LoggingPanedWindow(tk.PanedWindow):
 	"""
@@ -21,9 +22,29 @@ class LoggingPanedWindow(tk.PanedWindow):
 		+-------------------------+		
 	"""
 
-	def __init__(self, parent, frame:Callable[[Self],tk.Widget]=lambda p: tk.Frame(p), \
-				maxLines:int=24, visibleLines=2, logFiles=None, useStderr=True, maxLevel=3, \
-				fixedAppFrame=False, **kwargs):
+	class StdoutRedirector(object):
+		def __init__(self, owner, tag, stdOutput):
+			self.owner = owner
+			self.tag = tag
+			self.stdOutput = stdOutput
+
+		def write(self, string:str):
+			string = string.rstrip()
+			if len(string) == 0: return
+			self.stdOutput.write(string+"\n")
+			self.owner._prep()
+			self.owner.textArea.insert('end', string, self.tag)
+			self.owner._finish()
+
+		def flush(self):
+			pass
+
+	def __init__(self, parent, frame:Callable[[Self],tk.Widget]=lambda p: tk.Frame(p), 
+				maxLines:int=24, visibleLines:int=2, logFiles:list[str]=None, 
+				useStderr:bool=True, maxLevel:int=3, fixedAppFrame:bool=False, 
+				captureStdOutput:bool=True, 
+				soundError:Optional[str]='/System/Library/Sounds/Sosumi.aiff', 
+				**kwargs):
 		"""
 		:param parent: The parent window or frame.
 		:param frame: A function taking one argument (this *LoggingPanedWindow* instance 
@@ -41,9 +62,12 @@ class LoggingPanedWindow(tk.PanedWindow):
 		:param stderr:	bool. If *True*, and sys.stdout is in *logFiles*, then sys.stderr 
 						will be used for error-level messages. [default: True]
 		:param maxLevel: The maximum level to print. Cannot be less than 0 (normal)
+		:param captureStdOutput: Capture any output to *sys.stdout* and *sys.stderr* and
+						display it before forwarding it back to *sys.stdout* and *sys.stderr*.
+		:param soundError: An sound file to play when an error level message occurs.
 		:param **kwargs: An arguments *dict* to passed to the *tk.PanedWindow* constructor.
 		"""
-		print(f'*** fixedAppFrame = {fixedAppFrame}')
+		# fix up kwargs to contain the necessary defaults and create the PanedWindow (super).
 		if "orient" not in kwargs: kwargs["orient"] = tk.VERTICAL
 		if "showhandle" not in kwargs: kwargs["showhandle"] = False
 		if "sashwidth" not in kwargs: kwargs["sashwidth"] = 6
@@ -51,6 +75,8 @@ class LoggingPanedWindow(tk.PanedWindow):
 		if "bg" not in kwargs: kwargs["bg"] = "grey"
 		if "borderwidth" not in kwargs: kwargs["borderwidth"] = 0
 		super().__init__(parent, **kwargs)
+		
+		# set up the internal frames within the PanedWindow.
 		self.appFrame = frame(self)
 		self.appFrame.pack(fill=tk.BOTH if fixedAppFrame else tk.BOTH, side=tk.TOP, expand=False if fixedAppFrame else True)
 		self.textArea = tk.Text(self, state='disabled', wrap='none', width=80, height=visibleLines, borderwidth=0)#ttk.Labelframe(self.panedWindow, text='Pane1')#, width=100, height=100)
@@ -58,43 +84,53 @@ class LoggingPanedWindow(tk.PanedWindow):
 		self.pack(fill=tk.BOTH, expand=True)
 		stretch = 'never' if fixedAppFrame else 'always'
 		sticky = 'new' if fixedAppFrame else 'news'
-		weight = 0 if fixedAppFrame else 1
 		self.add(self.appFrame, stretch=stretch, sticky=sticky)#'always', 'first', 'last', 'middle', and 'never'.
 		self.paneconfigure(self.appFrame, stretch=stretch)
 		stretch = 'always' if fixedAppFrame else 'never'
 		sticky = 'news' if fixedAppFrame else 'new'
-		weight = 1 if fixedAppFrame else 0
 		self.add(self.textArea, stretch=stretch, sticky=sticky)
 		self.paneconfigure(self.textArea, stretch=stretch)
 		
-		self.maxLines = maxLines
-		self.visibleLines = visibleLines
-		self.useStderr = useStderr
-		self.maxLevel = 3
-		self.setMaxLevel(maxLevel)
-		self.lastTraceback = "<No traceback recorded>"
-		self.tracebackCount = 0
-		
-# 		self.textArea.tag_config("tracebackLink", foreground="blue")
-# 		self.textArea.tag_bind("tracebackLink", "<Button-1>", self._writeTraceback)
 		self.textArea.tag_config("traceback"    , foreground="purple")
 		self.textArea.tag_config("error"        , foreground="red")
 		self.textArea.tag_config("normal"       , foreground="black")
 		self.textArea.tag_config("warning"      , foreground="brown")
 		self.textArea.tag_config("informational", foreground="grey")
 		self.textArea.tag_config("debug"        , foreground="green")
-		self.textArea.tag_config("errorTag"     , foreground="red", font=self.textArea.cget("font")+" 0 bold")
+		self.textArea.tag_config("errorTag"     , foreground="red"  , font=self.textArea.cget("font")+" 0 bold")
 		self.textArea.tag_config("warningTag"   , foreground="brown", font=self.textArea.cget("font")+" 0 bold")
-		
-		# check type and writability of items in the logFiles parameter
+		self.textArea.tag_config("stdout"       , foreground="black", font=self.textArea.cget("font")+" 0 italic")
+		self.textArea.tag_config("stderr"       , foreground="red"  , font=self.textArea.cget("font")+" 0 bold italic")
+
+		# set up the class's properties (mostly from parameters...)
+		self.maxLines = maxLines
+		self.visibleLines = visibleLines
+		self.useStderr = useStderr
+		self.maxLevel = 3
+		self.setMaxLevel(maxLevel)
+		self.soundError = soundError
+		self.lastTraceback = "<No traceback recorded>"
+		self.tracebackCount = 0
+
 		if logFiles is None:
 			self.logFiles = []
 		else:
 			if not isinstance(logFiles, list): self.logFiles = [logFiles]
+
+		# deal with capturing stdout and stderr (param captureStdOutput)
+		self.realStdout = sys.__stdout__
+		self.realStderr = sys.__stderr__
+		if captureStdOutput and sys.stdout is sys.__stdout__:
+			sys.stdout = LoggingPanedWindow.StdoutRedirector(self, "stdout", self.realStdout)
+			sys.stderr = LoggingPanedWindow.StdoutRedirector(self, "stderr", self.realStderr)
+		
+		# check type and writability of items in the logFiles parameter
 		bad = []
 		for f in self.logFiles:
 			if not isinstance(f, TextIOWrapper):
-				self.write(f'LoggingPanedWindow.__init__(): Unaccepted type "{type(f).__name__}" for "logFiles" argument.', level=-1)
+				if not isinstance(f, LoggingPanedWindow.StdoutRedirector):
+					self.write(f'LoggingPanedWindow.__init__(): Unaccepted type "{type(f).__name__}" for "logFiles" argument.', level=-1)
+				bad.append(f)
 				continue
 			if not f.writable():
 				self.write(f'LoggingPanedWindow.__init__(): Got a file in "logFiles" argument that does not appear to be writable.', level=-1)
@@ -136,7 +172,6 @@ class LoggingPanedWindow(tk.PanedWindow):
 		
 	def _writeTraceback(self, event, tbString=None):
 		self._prep()
-# 		self.textArea.insert('end', self.lastTraceback, ('traceback',))		
 		self.textArea.insert('end', str(tbString), ('traceback',))		
 		self._finish()
 
@@ -172,6 +207,8 @@ class LoggingPanedWindow(tk.PanedWindow):
 		if   level == -1: 
 			self.textArea.insert('end', "ERROR: ", ("errorTag",))
 			prefix = "***ERROR***: "
+			if self.soundError is not None:
+				play(self.soundError)
 		elif level ==  1:
 			self.textArea.insert('end', "WARNING: ", ("warningTag",))
 			prefix = "*WARNING*: "
@@ -207,8 +244,8 @@ class LoggingPanedWindow(tk.PanedWindow):
 				
 		# write out to any logfiles
 		for f in self.logFiles:
-			if f is sys.stdout and level<0:
-				f = sys.stderr
+			if (f is sys.stdout or f is self.realStdout) and level<0:
+				f = self.realStderr
 			f.write(f'{output}\n')
 			if exception is not None:
 				f.write(f'{self.lastTraceback}\n')

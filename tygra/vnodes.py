@@ -1,15 +1,28 @@
 """
-VNodes
+Implements VNode and all its supporting classes:
+
+*VNode*:
+   The main class in this module. A visual node that represents an *MNode* (model node).
+   
+*Shape*:
+   An abstract base class for *Rectangle, RightParallelogram, LeftParallelogram, FileFolder, TopPentagon*,
+   *RightPentagon, LeftPentagon, Hexagon, RoundedShape, RoundedRectangle*\ , and *Oval* (all in
+   this module). These form the base visual part of a VNode with *Decorators*, like *Text*, drawn over them
+   to add detail. 
+   
+*Decorator*:
+   A abstract base class for all decorators, including *Text, WrappingText*\ , and *TypeMarker* (all
+   in this module).
+----
 """
 import tkinter as tk
 #from tkinter import ttk
-from tygra.util import tag_bindRightMouse, tag_unbindRightMouse, pointInPoly, PO, AddrServer, \
-				IDServer, overlaps, shiftRectToPoint, expandRect, allConcreteSubclasses
-import sys
+from tygra.util import tag_bindRightMouse, tag_unbindRightMouse, pointInPoly, AddrServer, \
+				IDServer, overlaps, expandRect, allConcreteSubclasses, s_CMD, s_SHIFT
 from tygra.mnodes import MNode
 from tygra.mrelations import Isa, MRelation
 from tygra.vobjects import VObject
-from tygra.mobjects import ModelObserver, MObject
+from tygra.mobjects import MObject
 from abc import ABC, abstractmethod # Abstract Base Class
 #from collections.abc import Iterable
 from tygra.attributes import Attributes
@@ -19,7 +32,6 @@ from typing import Any, Optional, Iterable, Callable, Self
 import tygra.app as app
 from math import sqrt
 from tygra.tooltip import CreateToolTip
-from pickle import NONE, TRUE
 
 class VNode(VObject):
 
@@ -320,12 +332,37 @@ class VNode(VObject):
 			if d is not None:
 				if c != None:
 					d.redraw(fill=c)
-# 				assert d.getAttr("fill") == self.model.attrs["textColor"]
 		try: # The fill color could be non-existent for a transparent color
 			return self.tgview.itemconfigure(d.id, "fill")[0]
 		except:
 			return ""
-# 		return self.model.attrs["textColor"]
+		
+	def selected(self, val:Optional[bool]=None, _multi:bool=False):
+		if val is not None:
+			if val: # setting selected
+				if "selected" not in self.decorators:
+					self.decorators["selected"] = Selected(self)
+					self.decorators["selected"].draw()
+					if not _multi:
+						for s in self.tgview.selected.copy():
+							if s is not self: s.selected(False)
+					self.tgview.selected.add(self)
+			else: # setting not selected
+				if "selected" in self.decorators:
+					self.decorators["selected"].delete()
+					assert "selected" not in self.decorators
+					self.redraw()
+					self.tgview.selected.discard(self)
+		return "selected" in self.decorators
+
+#				if self.selected():
+#					if (s&0x18) == 0: # the mac <cmd> key is NOT pressed
+#						for s in self.tgview.selected: 
+#							if s is not self: s.selected(False)
+#					self.tgview.selected.add(self)
+#				else:
+#					self.tgview.selected.discard(self)
+
 		
 	def shape(self, c=None):
 		if c is not None and c != type(self._shape).__name__:
@@ -692,40 +729,58 @@ class VNode(VObject):
 		#self.dragInfo = None
 
 	def onButton_1(self, event): #get initial location of object to be moved
+		"""
+		The mouse clicked on this node, so begin a mouse event capture. We will
+		decide on if it's just a node move or a selection toggle in *self.onB1_Motion()*
+		and *self.onB1ButtonRelease()*.
+		"""
 		self.tgview.addEventHandled(event)
 		winX = event.x - self.tgview.canvasx(0)
 		winY = event.y - self.tgview.canvasy(0)
-		self.dragInfo = (winX, winY)
+		self.dragInfo = (winX, winY, False)
 		self.old_suppressLocalLayout = self.tgview.suppressLocalLayout()
 		self.tgview.suppressLocalLayout(True)
 		return 'break'
 
 	def onB1_Motion(self, event):
+		"""
+		The mouse is moving while being captured by this node, so if we had clicked to start
+		accepting events, just move the node to track the event, updating *self.dragInfo*.
+		"""
 		if self.dragInfo != None:
 			winX = event.x - self.tgview.canvasx(0)
 			winY = event.y - self.tgview.canvasy(0)
 			newX = winX - self.dragInfo[0]
 			newY = winY - self.dragInfo[1]
-			self.moveBy(newX, newY)
+			if self.selected():
+				for n in self.tgview.selected:
+					n.moveBy(newX, newY)
+			else:
+				self.moveBy(newX, newY)
 			# reset the starting point for the next move
-			self.dragInfo = (winX, winY)
+			self.dragInfo = (winX, winY, True)
 			self.tgview.addEventHandled(event)
 			return 'break'
-
-
 
 	def onB1_ButtonRelease(self, event): #reset data on release
+		"""
+		Button one was released. If it was a drag, it was a move, and everything is fine except
+		we call self.adjustPos() which may resolve overlap conflicts. If it was a click (no
+		intervening <B1_Motion> events), toggle the selection state of the node.
+		"""
 		if self.dragInfo != None:
-			self.dragInfo = None
-			self.tgview.suppressLocalLayout(self.old_suppressLocalLayout)
-			self.onDragRelease(event)
+			if self.dragInfo[2]: # indicated there was a <B1_Motion> event, ie: this was a drag: wrap up a move.
+				self.tgview.suppressLocalLayout(self.old_suppressLocalLayout)
+				self.adjustPos()
+			else: # this was a click, not a drag: toggle the selection state
+				s = event.state
+				self.selected(not self.selected(), _multi=s_CMD(s) or s_SHIFT(s)) # toggle selected
+				print(f'toggled selection on "{self.model.attrs["label"]}" to {self.selected()}"')
 			self.tgview.addEventHandled(event)
+			self.dragInfo = None
 			return 'break'
-			# TODO: add updating the boundingBox and the boundingBox attribute too.
+			# TODO: add updating the boundingBox.
 			
-	def onDragRelease(self, event):
-		self.adjustPos()
-
 	def notifyModelChanged(self, modelObj, modelOperation:str, info:Optional[any]=None):
 # 		if modelObj != self.model: # it must be that a isa-ancestor of the model changed,
 # 			self.tgview.logger.write(f'VNode.notifyModelChanged({modelObj}[NOT self.model], "{modelOperation}", info={info}) [{self}]', level="debug")
@@ -1271,7 +1326,7 @@ class WrappingText(Text):
 
 	def __init__(self, owner:VObject, **kwargs):
 		super().__init__(owner, **kwargs)
-		self.text = NONE
+		self.text = None
 		self.minSize = -1
 		self.aspectRatio = 0
 
@@ -1385,3 +1440,39 @@ class TypeMarker(Decorator):
 		self.owner.notifyDecoratorDeletion(self)
 		self.kwargs = None
 		self.kwargs2 = None
+
+class Selected(Decorator):
+	def __init__(self, owner:VObject, **kwargs):
+		super().__init__(owner)
+		self.kwargs = kwargs
+		if "fill"    not in self.kwargs: self.kwargs["fill"]    = ""
+		if "width"   not in self.kwargs: self.kwargs["width"]   = 3
+		if "outline" not in self.kwargs: self.kwargs["outline"] = "blue"
+		self.id = None
+
+	def draw(self):
+		assert self.id is None, f'Selected.draw() [{self.owner}]: .draw() called twice.'
+		self.kwargs["tags"] = [self.owner.tag, 'selection']
+		rect = self.owner.boundingBox()
+		rect = self.owner.tgview.viewToWindow(rect)
+		self.id = self.owner.tgview.create_rectangle(rect, **self.kwargs)
+		
+	def redraw(self, **kwargs):
+		self.kwargs.update(kwargs)
+		if self.id is not None:
+			rect = self.owner.boundingBox()
+			rect = self.owner.tgview.viewToWindow(rect)
+			self.owner.tgview.coords(self.id, rect)
+			self.owner.tgview.itemconfigure(self.id, **self.kwargs)
+
+	def getAttr(self, name):
+		if name in self.kwargs:
+			return self.kwargs[name]
+		else:
+			return None
+		
+	def delete(self):
+		self.owner.tgview.delete(self.id)
+		self.owner.notifyDecoratorDeletion(self)
+		self.kwargs = None
+	
