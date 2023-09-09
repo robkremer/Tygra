@@ -178,10 +178,10 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 	
 		:param nodeType: The *MObject* or a list of *MObjects* to serve a type representation
 			or None which the following interpretation:
-				* None: return a tree-list of all the isa-parents of this *MObject*. You can
-					flatten this tree-list to a simple list using *treeFlatten()*.
-				* *MObject*: return True iff *nodeType* is a isa-parent of this *MObject*.
-				* *[MObject]*: return True iff EVERY element of *nodeType* is a isa-parent of this *MObject*.
+			* None: return a tree-list of all the isa-parents of this *MObject*. You can
+			flatten this tree-list to a simple list using *treeFlatten()*\ .
+			* *MObject*: return True iff *nodeType* is a isa-parent of this *MObject*.
+			* *[MObject]*: return True iff EVERY element of *nodeType* is a isa-parent of this *MObject*.
 		:return: a bool or a tree-list as above.
 		"""
 		if nodeType is None:
@@ -215,9 +215,9 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 
 		:param nodeType: The *MObject* or a list of *MObjects* to serve a type representation
 			or None which the following interpretation:
-				* None: return a list of all the isa-parents of this *MObject*.
-				* *MObject*: return True iff *nodeType* is a isa-parent of this *MObject*.
-				* *[MObject]*: return True iff EVERY element of *nodeType* is a isa-parent of this *MObject*.
+			* None: return a list of all the isa-parents of this *MObject*\ .
+			* *MObject*: return True iff *nodeType* is a isa-parent of this *MObject*\ .
+			* *[MObject]*: return True iff EVERY element of *nodeType* is a isa-parent of this *MObject*\ .
 		:return: a bool or a tree-list as above.
 		"""
 		if nodeType is None:
@@ -246,21 +246,20 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 		then return the set of ALL *MObject*s so related to *MObject*. 
 	
 		.. note::
-		This is not a simple "return the *toNode*s end of the *MObject*'s conforming relations",
-		as it also takes account of the relation's transitive, symmetric, and reflective
-		properties.
+		   This is not a simple "return the *toNode*s end of the *MObject*'s conforming relations",
+		   as it also takes account of the relation's transitive, symmetric, and reflective
+		   properties.
 	
 		:param relType: The *MRelation* or a list of *MObjects* to serve a type representation.
 			The search will ONLY follow relations that are a isa-subtype of *relType*, which
 			may be a simple MObject, or a list of MObjects.
-
 		:param toNode: A node or relation as the 2nd element in a relation. If specified,
 			makes this a (boolean or list) query. May be an *MObject* or None
 			or None which the following interpretation:
-				* *None*: return a *set* of all the *MObjects* related through some *MRelation*
-					that is a subtype of *relType*. 
-				* *MObject*: return True iff *toNode* is related to this *MObject* through
-					 some chain of relations that are subtypes of *relType.
+			* *None*: return a *set* of all the *MObjects* related through some *MRelation*
+			that is a subtype of *relType*. 
+			* *MObject*: return True iff *toNode* is related to this *MObject* through
+			some chain of relations that are subtypes of *relType*\ .
 		:param _omit: Should never be used. Used ONLY by relational properties to prevent
 			infinite recursion in following relation chains.
 		:return: Depends on the *ToNode* argument, as above.

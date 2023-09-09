@@ -26,6 +26,13 @@ import gc
 import xml.etree.ElementTree as et
 from ast import literal_eval
 from typing import Any, Optional, Type, Union, Tuple, Callable, Iterable, TypeVar, Generic, Self
+from tygra import prefs
+import webbrowser
+import pathlib
+from urllib.parse import urlparse
+import urllib
+from pip._vendor import requests
+from fontTools.colorLib import geometry
 
 sys.path.append(os.path.dirname(__file__))
 from tygra.weaklist import WeakList
@@ -39,8 +46,9 @@ from tygra.vnodes import VNode
 from tygra.vrelations import VRelation, VIsa
 import tygra.app as app
 from tygra.loggingPanedWindow import LoggingPanedWindow 
-#Misc.grid_columnconfigure
-
+from tygra.prefs import Prefs
+			
+		
 ##########################################################################################
 ############################## class TypedGraphsContainer ################################
 ##########################################################################################
@@ -51,10 +59,13 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 	Also acts as a top-level ID creation server and an id-to-address server for a all
 	models/views in the file.
 	"""
+	
+	_instances:WeakList[Self] = WeakList()
 
 	### Constructor and helpers ##########################################################
 	
-	def __init__(self, filename:Optional[str]=None):
+	def __init__(self, filename:Optional[str]=None, helppath:Optional[str]=None,
+				geometry:Optional[str]=None):
 		"""
 		Returns a tk.TK window for the application. The contains a frame listing the models
 		of views contained in a single file.
@@ -66,8 +77,13 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 			* *None*: A file open dialog box is presented and the result (if a file is 
 					selected) proceeds as "filename", or (if the dialog box is cancelled)
 					proceed as "<new>".
+		:param helpPath: Either a file path or a URL to the root directory of the html help
+			information for the program.
+		:param goemetry: The initial geometry string for the window.
 		"""
 		super().__init__()
+		TypedGraphsContainer._instances.append(self)
+		self.protocol("WM_DELETE_WINDOW", self.onClosing)
 		self.option_add('*tearOff', tk.FALSE)
 		self.menu = self.makeMenu()
 		self.config(menu=self.menu)
@@ -82,6 +98,17 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		self.directory = None
 		self.topFrame = None
 		
+		if helppath is None:
+			dir_,_ = os.path.split(__file__)
+			helppath = os.path.abspath(os.path.join(dir_,'html'))
+		if urlparse(helppath).scheme == "": # helpPath isn't a URL
+			self.helpURL = pathlib.Path(helppath).as_uri()
+		else:
+			self.helpURL = helppath
+		if not self.helpURL.endswith('/'):
+			self.helpURL += '/'
+		print(f'helpPath = {self.helpURL}')
+				
 		# Do the file dialog thing
 		if filename == '<new>': # special tag to force creation of a brand new model
 			self.filename = None
@@ -91,6 +118,7 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		else: # we were given a filename, open it (openFile() only uses a dialog in case the filename is bad)
 			self.filename = filename
 			self.filename, tree = self.openFile(filename)
+					
 
 		# We have a filename, so build the actual interface
 		if self.filename is not None: # we have filename, read it.
@@ -103,6 +131,13 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		
 		self.title(f'{app.APP_LONG_NAME}{(": "+os.path.basename(self.filename)) if self.filename is not None else ""}')
 		self.logger.write(f"{app.APP_LONG_NAME} file window initialized.")
+		if geometry is not None:
+			self.logger.winfo_toplevel().geometry(geometry)
+		
+	def destroy(self) -> None:
+		TypedGraphsContainer._instances.remove(self)
+		self.logger.delete()
+		super().destroy()
 		
 	### Directory Frame and helpers ######################################################
 
@@ -122,7 +157,7 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 			self.modelData = modelData
 			self.viewRecords = viewRecords
 
-	def makeRecordsFrame(self, parent=None, tree:et.Element=None):
+	def makeRecordsFrame(self, parent=None, tree:et.Element=None) -> tk.Frame:
 		"""
 		Make a frame showing the list of models and the sublists of thier views.
 		
@@ -151,6 +186,9 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 				raise ValueError(f'TypedGraphsContainer(): {self.filename} is not a typedgraphs file.')
 			self.readDirectory(root)
 			self.readModelsAndViews(root)
+			geometry = root.get('geometry')
+			if geometry is not None:
+				self.winfo_toplevel().geometry(geometry)
 			
 		# set up the grid in the frame
 		self.topFrame.columnconfigure(0, weight=0)
@@ -333,6 +371,13 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		self.directory.pop(id)
 		self.makeRecordsFrame()
 		
+	def onClosing(self):
+		p = prefs.Prefs()
+#		p.load()
+		p.save()
+		self.destroy()
+
+		
 	def setModelName(self, model, name:str):
 		"""Sets the entry for *model* to *name* in *self.directory*."""
 		self.directory[model.idString].modelName.set(name)
@@ -341,6 +386,28 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		"""Sets the entry for *view* to *name* in *self.directory*."""
 		self.directory[view.model.idString].viewRecords[view.idString].viewName.set(name)
 
+	def getViewsFromDirectory(self) -> dict:#[str, Self.ViewRecord]:
+		ret = dict()
+		for dirModelID, dirModelRec in self.directory.items():
+			for dirViewID, dirViewRec in dirModelRec.viewRecords.items():
+				ret[dirViewID] = dirViewRec
+		return ret
+
+	def lookupViewInDirectory(self, id:str) -> ViewRecord:
+		for dirModelID, dirModelRec in self.directory.items():
+			if id in dirModelRec.viewRecords:
+				return dirModelRec.viewRecords[id]
+		return None
+	
+	def lookupNameInDirectory(self, id:str) -> str:
+		if self.directory is None: return id
+		if id in self.directory:
+			return self.directory[id].modelName.get()
+		for dirModelID, dirModelRec in self.directory.items():
+			if id in dirModelRec.viewRecords:
+				return dirModelRec.viewRecords[id].viewName.get()
+		return id
+		
 	### Persistence ######################################################################
 
 	def openFile(self, filename:Optional[str]=None) -> tuple[Optional[str], Optional[et.Element]]:
@@ -389,7 +456,10 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		"""
 		if elem.tag != "TGView":
 			raise ValueError(f'TypedGraphsContainer.openView(): argument is not a TGView element.')
-		return PO.makeObject(elem, self, TGView)
+		ret = PO.makeObject(elem, self, TGView)
+		viewRec = self.lookupViewInDirectory(ret.idString)
+		viewRec.viewData = ret
+		return ret
 		
 	def notifyViewDeleted(self, view):
 		"""
@@ -432,6 +502,7 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		topElem = et.Element("typedgraphs")
 		topElem.set('id', app.CONTAINER_ID)
 		topElem.set('version', '0.0')
+		topElem.set('geometry', self.winfo_toplevel().geometry())
 		dir = et.Element('directory')
 		for mid, mr in self.directory.items():
 			mElem = et.Element('model')
@@ -470,6 +541,19 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		tree.write(filename, xml_declaration=True, encoding="utf-8")
 		self.filename = filename
 		self.logger.write(f'Saved to {self.filename}', level='info')
+		
+	def closeAllFiles(self):
+		print("closeAllFiles()")
+		prefs = Prefs()
+		prefs.save()
+		print(f"saved, instances={TypedGraphsContainer._instances}")
+		for tgc in list(TypedGraphsContainer._instances):
+			print(f"About to destroye TypedGraphsContainter, file {tgc.filename}")			
+			try:
+				tgc.destroy()
+			except:
+				pass
+			print(f"Destroyed TypedGraphsContainter, file {tgc.filename}")
 
 	### Menu Bar menus and helpers #######################################################
 
@@ -491,6 +575,7 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		filemenu.add_cascade(label="New", menu=newmenu)
 		filemenu.add_command(label="Open...", command=self.openNewInstance)
 		filemenu.add_command(label="Save...", command=self.saveFile)
+		filemenu.add_command(label="Close All", command=self.closeAllFiles)
 		menubar.add_cascade(label="File", menu=filemenu)
 		
 		
@@ -505,11 +590,25 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		return menubar
 		
 	# TODO: Implement application help
-	def showHelp(self):
+	def showHelp(self, relPagePath="index.html"):
 		"""
 		Shoow help info for the application.
 		"""
-		self.logger.write("TypedGraphsContainer.showHelp(): not implemented.", level="warning")
+		url = urllib.parse.urljoin(self.helpURL, relPagePath)
+		try:
+			if str(url).startswith("file:///"):
+				if os.path.exists(url[7:].replace("%20"," ")):
+					webbrowser.open(url, new=0, autoraise=True)
+				else:
+					self.logger.write(f'TypedGraphsContainer.showHelp(): Can\'t find file {url[7:]}.', level="error")
+			else:
+				r = requests.head(url)
+				if r.status_code == 200:
+					webbrowser.open(url, new=0, autoraise=True)
+				else:
+					self.logger.write(f'TypedGraphsContainer.showHelp(): Can\'t find URL {url}: Status code {r.status_code}.', level="error")
+		except Exception as ex:
+			self.logger.write("TypedGraphsContainer.showHelp(): cannot open {url}.", level="error", exception=ex)
 		
 	def showAbout(self):
 		"""
@@ -527,14 +626,28 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 	def showPreferencesDialog(self):
 		self.logger.write("TypedGraphsContainer.showPreferencesDialog(): not implemented.", level="warning")
 
-#########################################################################################
+##########################################################################################
 ################################## class TGModel #########################################
 ##########################################################################################
 
 class _TempLogger: # A logger to use only until the constructor is far enough to use the real one.
-	def write(self, s, **kwargs): print(s + ("" if len(kwargs) == 0 else (" "+str(kwargs))))
+	def write(self, s, **kwargs): sys.__stdout__.write(s + ("" if len(kwargs) == 0 else (" "+str(kwargs))) + '\n')
 		
 class TGModel(PO, IDServer):
+	"""
+	A non-user interfaced container class for a graph *model*\ . It contains objects of
+	types :class:`mnodes.MNode`, :class:`mrelations.MRelation`, and :class:`mrelations.Isa`. 
+	Users extend and edit models though views (:class:`TGView`). A model builds the fundamental
+	nodes and relations automatically during it's construction; these are NOT stored with
+	the model data when it is serialized to a file. These are:
+	
+	* T: The "top" node, base type for all nodes.
+	* REL: The base type for all relations.
+	* TRANS: TRANS <: REL. The type for transitive relations.
+	* REFL: REFL <: REL. The type for reflexive relations.
+	* SYM: SYM <: REL. The type for symmetric relations.
+	* ISA: ISA <: TRANS, REFL. The type for isa (subsumption) relations.
+	"""
 
 	@property
 	def logger(self):
@@ -543,7 +656,8 @@ class TGModel(PO, IDServer):
 		except:
 			return self._tempLogger
 			
-	def __init__(self, container:TypedGraphsContainer, idServer:IDServer=None, addrServer:AddrServer=None, _id:Optional[int]=None):
+	def __init__(self, container:TypedGraphsContainer, idServer:IDServer=None, 
+				addrServer:AddrServer=None, _id:Optional[int]=None):
 		self._tempLogger = _TempLogger()
 		# call the IDServer constructor
 		IDServer.__init__(self, parent=container, _id=_id)
@@ -799,6 +913,13 @@ class TGModel(PO, IDServer):
 	
 		
 class TGView(tk.Canvas, PO, IDServer, ModelObserver):
+	"""
+	The actual graph editor Canvas. Quite a large class, handling the user interaction. It's
+	a container for visual objects, :class:`vnodes.VNode`\ , :class:`vrelations.VRelation` 
+	and :class:`vrelations.VIsa`\ . All of these reference their model counterparts for
+	actual semantic information (such a relations and type constraints), in addition to 
+	shared visual attributes (such as fillColor, bounderColor, shape, and label).
+	"""
 
 	makeRelationData = namedtuple('makeRelationData', 'node type lineID')
 	
@@ -832,7 +953,8 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 
 	def __init__(self, tkparent, container:TypedGraphsContainer, model:TGModel, 
 				idServer:IDServer=None, _id:Optional[int]=None, 
-				hiddenCategories:Optional[list[str]]=None, **kwargs):
+				hiddenCategories:Optional[list[str]]=None, windowGeometry:Optional[str]=None, 
+				**kwargs):
 
 		self._clearIdLookupTable(container, _id)	
 
@@ -883,17 +1005,10 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 		if tkparent==None:
 			tkparent = container
 		child_w = tk.Toplevel(tkparent)
-		child_w.geometry("750x400")
-		child_w.title(f'{app.APP_LONG_NAME}{(": "+os.path.basename(self.container.filename)) if self.container.filename is not None else ""}: view {str(self.idString)} of model {model.idString}')
+		child_w.geometry("750x400" if windowGeometry is None else windowGeometry)
+		file = (": "+os.path.basename(self.container.filename)) if self.container.filename is not None else ""
+		child_w.title(f'{app.APP_LONG_NAME}{file}: view "{self.container.lookupNameInDirectory(self.idString)}" of model "{self.container.lookupNameInDirectory(model.idString)}"')
 
-# 		style = ttk.Style()
-# 		style.theme_use('aqua')
-
-# 		self.panedWindow = tk.PanedWindow(child_w, orient=tk.HORIZONTAL, showhandle=True, sashwidth=10)
-# 		self.frame = ttk.Frame(self.panedWindow)
-# 		self.panedWindow.add(self.frame, stretch='always')#'always', 'first', 'last', 'middle', and 'never'.
-# 		self.textArea = tk.Text(self.panedWindow, state='disabled', wrap='none', width=80, height=2, borderwidth=0)#ttk.Labelframe(self.panedWindow, text='Pane1')#, width=100, height=100)
-# 		self.panedWindow.add(self.textArea, stretch='never')
 		self.logger = LoggingPanedWindow(child_w, logFiles=sys.stdout)
 		self.frame = self.logger.appFrame
 				
@@ -1022,6 +1137,7 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 		elem.set("model", self.model.idString)
 		elem.set("modelEditor", str(self.isModelEditor))
 		elem.set("hiddenCategories", str(list(self.hiddenCategories)))
+		elem.set("geometry", self.winfo_toplevel().geometry())
 		
 		# save nodes
 		nodes = et.Element("nodes")
@@ -1060,6 +1176,10 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 		hiddenCategories = elem.get("hiddenCategories")
 		if hiddenCategories is not None:
 			kwargs["hiddenCategories"] = literal_eval(hiddenCategories)
+			
+		geometry = elem.get("geometry")
+		if geometry is not None:
+			kwargs["windowGeometry"] = geometry
 		
 		return args, kwargs
 	
@@ -1230,7 +1350,6 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 		bb = list(self.bbox("all"))
 		bb = [0, 0, bb[2]+800, bb[3]+600]
 		self.configure(scrollregion=bb)
-#		print(self.fontSize)
 
 
 	def setNewNodeDisplaySelectionPolicy(self, func:Optional[Callable[[MObject], bool]]=None):

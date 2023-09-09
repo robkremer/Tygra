@@ -16,11 +16,21 @@ from math import ceil
 import os
 import subprocess
 
+
+
 # State bits in events
-def s_CMD(s)  : return (s&0x18) != 0
-def s_SHIFT(s): return (s&0x1)  != 0
-def s_CTL(s)  : return (s&0x4)  != 0
-def s_ALT(s)  : return (s&0x88) != 0
+def s_CMD(s:int) -> bool:
+	":return: *True* iff *s* has the Command key bit set."
+	return (s&0x18) != 0
+def s_SHIFT(s:int) -> bool: 
+	":return: *True* iff *s* has the Shift key bit set."
+	return (s&0x1)  != 0
+def s_CTL(s:int) -> bool: 
+	":return: *True* iff *s* has the Control key bit set."
+	return (s&0x4)  != 0
+def s_ALT(s:int) -> bool: 
+	":return: *True* iff *s* has the Alt or Option key bits set."
+	return (s&0x88) != 0
 s_OPT = s_ALT
 
 # Graphical representations for control keys
@@ -276,23 +286,44 @@ class Categories(Generic[T]):
 ########## GRAPHIC UtiLItiES #############################################################
 ##########################################################################################
 
-def pointInRect(pt, rect):
-	""""pt: (x,y); rect: (x,y,x1,y1)"""
+def pointInRect(pt:Iterable[float], rect:Iterable[float]) -> bool:
+	"""
+	:param pt: (x,y) 
+	:param rect: (x,y,x1,y1)
+	:return: *True* iff the give *pt* lies inside *rect*.
+	"""
 	return pointInPoly(pt, [(rect[0], rect[1]),
 							(rect[2], rect[1]),
 							(rect[2], rect[3]),
 							(rect[0], rect[3])])
 							
-def shiftRectToPoint(rect:list, point:list):
+def shiftRectToPoint(rect:Iterable[float], point:Iterable[float]) -> list[float]:
+	"""
+	:param pt: (x,y) 
+	:param rect: (x,y,x1,y1)
+	:return: A new rectangle if the same size and aspect ratio as *rect*, but with the 
+		upper left corner at *pt*\ .
+	"""
+	
 	return [point[0], point[1], point[0]+rect[2]-rect[0], point[1]+rect[3]-rect[1]]
 										
-def overlaps(rect1, rect2):
+def overlaps(rect1:Iterable[float], rect2:Iterable[float]) -> bool:
+	"""
+	:param rect1: (x,y,x1,y1)
+	:param rect2: (x,y,x1,y1)
+	:return: *True* iff the two rectangles overlap.
+	"""
 	def overlapDim(a1, a2, b1, b2):
 		return not(a2 < b1 or b2 < a1)
 	return overlapDim(rect1[0], rect1[2], rect2[0], rect2[2]) and \
 	   	   overlapDim(rect1[1], rect1[3], rect2[1], rect2[3])
 
-def pointInPoly(pt, poly):
+def pointInPoly(pt:Iterable[float], poly:Iterable[float]) -> bool:
+	"""
+	:param pt: (x,y) 
+	:param poly: (x,y [,x1,y1]...)
+	:return* *True* iff the give *pt* lies inside *poly*\ .
+	"""
 	import numpy as np
 	import matplotlib.path as mplPath
 	arr = []
@@ -301,16 +332,32 @@ def pointInPoly(pt, poly):
 	bbPath = mplPath.Path(np.array(arr))
 	return bbPath.contains_point(pt)
 
-def midpoint(pt1, pt2):
+def midpoint(pt1:Iterable[float], pt2:Iterable[float]) -> list[float]:
+	"""
+	:param pt1: (x,y)
+	:param pt2: (x,y)
+	:return: The point midway between the two points.
+	"""
 	return ((pt1[0]+pt2[0])/2, (pt1[1]+pt2[1])/2)
 	
-def expandRect(rect:list, spacing:list):
+def expandRect(rect:Iterable[float], spacing:Iterable[float]) -> list[float]:
+	"""
+	:param rect: The rectangle to expand.
+	:param spacing: The vector of points to expand *rect* as [left, top, right, bottom].
+	:return: A new rectangle representing the expansion of *rect*\ .
+	""" 
 	return  [rect[0]-spacing[0],
 			 rect[1]-spacing[1],
 			 rect[2]+spacing[2],
 			 rect[3]+spacing[3]]
 	
-def normalizeRect(rect:list[float]) -> list[float]:
+def normalizeRect(rect:Iterable[float]) -> list[float]:
+	"""
+	Fix up a rect (x,y,x1,y1) such that x<x1 and y<y1, in conformance to tk rules.
+	
+	:param: rect:
+	:return: A new rectangle same as *rect*, but s/t x<x1 and y<y1.
+	"""
 	return [rect[0] if rect[0]<rect[2] else rect[2],
 			rect[1] if rect[1]<rect[3] else rect[3],
 			rect[2] if rect[0]<rect[2] else rect[0],

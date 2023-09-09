@@ -1,0 +1,18 @@
+<project name="tygra" default="dist" basedir=".">
+  <description>
+    build the various parts for the tygra distribution
+  </description>
+  <!-- set global properties for this build -->
+  <property name="src" location="tygra"/>
+  <property name="build" location="build"/>
+  <property name="dist" location="dist"/>
+	
+  <target name="dist" depends="doc"/>
+	
+  <target name="doc">
+	<exec executable="make" dir="sphinx" searchpath="true">
+	  <arg value="html"/>
+	  <env key="PATH" path="/usr/local/bin:/usr/local/sbin:/Library/Frameworks/Python.framework/Versions/3.11/bin"/>
+	</exec>
+  </target>
+</project>

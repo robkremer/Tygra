@@ -13,6 +13,7 @@ Implements VNode and all its supporting classes:
 *Decorator*:
    A abstract base class for all decorators, including *Text, WrappingText*\ , and *TypeMarker* (all
    in this module).
+   
 ----
 """
 import tkinter as tk
@@ -932,7 +933,7 @@ class Shape:
 		:param rect: a rectangle taken as the bounding box for this Shape's points
 					in VIEW coordinates. 
 		:return: Returns the vertex points fitted to *rect* if it's given, otherwise 
-					*self.boundingBox(), in VEIW coordinates (not WINDOW coordinates).
+					*self.boundingBox()*\ , in VEIW coordinates (not WINDOW coordinates).
 					
 		If subclasses have properly overridden the *template()* method, there should
 		be no need to override this method.

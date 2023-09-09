@@ -6,6 +6,7 @@ import sys
 import os
 import traceback
 from tygra.util import play
+from pickle import NONE
 
 class LoggingPanedWindow(tk.PanedWindow):
 	"""
@@ -65,7 +66,7 @@ class LoggingPanedWindow(tk.PanedWindow):
 		:param captureStdOutput: Capture any output to *sys.stdout* and *sys.stderr* and
 						display it before forwarding it back to *sys.stdout* and *sys.stderr*.
 		:param soundError: An sound file to play when an error level message occurs.
-		:param **kwargs: An arguments *dict* to passed to the *tk.PanedWindow* constructor.
+		:param \*\*kwargs: An arguments *dict* to passed to the *tk.PanedWindow* constructor.
 		"""
 		# fix up kwargs to contain the necessary defaults and create the PanedWindow (super).
 		if "orient" not in kwargs: kwargs["orient"] = tk.VERTICAL
@@ -112,18 +113,18 @@ class LoggingPanedWindow(tk.PanedWindow):
 		self.lastTraceback = "<No traceback recorded>"
 		self.tracebackCount = 0
 
-		if logFiles is None:
-			self.logFiles = []
-		else:
-			if not isinstance(logFiles, list): self.logFiles = [logFiles]
-
 		# deal with capturing stdout and stderr (param captureStdOutput)
-		self.realStdout = sys.__stdout__
-		self.realStderr = sys.__stderr__
+		self.realStdout = sys.stdout
+		self.realStderr = sys.stderr
 		if captureStdOutput and sys.stdout is sys.__stdout__:
 			sys.stdout = LoggingPanedWindow.StdoutRedirector(self, "stdout", self.realStdout)
 			sys.stderr = LoggingPanedWindow.StdoutRedirector(self, "stderr", self.realStderr)
 		
+		# deal with log files
+		if logFiles is None:
+			self.logFiles = []
+		else:
+			if not isinstance(logFiles, list): self.logFiles = [logFiles]
 		# check type and writability of items in the logFiles parameter
 		bad = []
 		for f in self.logFiles:
@@ -136,6 +137,13 @@ class LoggingPanedWindow(tk.PanedWindow):
 				self.write(f'LoggingPanedWindow.__init__(): Got a file in "logFiles" argument that does not appear to be writable.', level=-1)
 				bad.append(f)
 		for f in bad: self.logFiles.remove(f)
+		
+	def delete(self):
+		sys.stdout = self.realStdout
+		sys.stderr = self.realStderr
+		for i in range(len(self.logFiles)):
+			self.logFiles[i] = None
+		self.logFiles = None
 		
 	levelToTag = {	-1: "error",
 					 0: "normal",
