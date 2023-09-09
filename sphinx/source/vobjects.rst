@@ -1,0 +1,5 @@
+Module vobjects
+===============
+
+.. automodule:: vobjects
+

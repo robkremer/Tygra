@@ -1,0 +1,5 @@
+Module mnodes
+=============
+
+.. automodule:: mnodes
+

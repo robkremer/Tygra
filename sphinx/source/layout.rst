@@ -1,0 +1,5 @@
+Module layout
+=============
+
+.. automodule:: layout
+

@@ -1,0 +1,5 @@
+Module loggingPanedWindow
+=========================
+
+.. automodule:: loggingPanedWindow
+

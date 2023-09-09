@@ -1,0 +1,5 @@
+Module relationproperties
+=========================
+
+.. automodule:: relationproperties
+
