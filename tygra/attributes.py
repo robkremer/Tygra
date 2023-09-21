@@ -23,9 +23,31 @@ dialog to edit the attributes is also implemented. Each attribute enjoys "proper
   
 ----
 """
+#################################################################################
+# (c) Copyright 2023, Rob Kremer, MIT open source license.						#
+#																				#
+# Permission is hereby granted, free of charge, to any person obtaining a copy	#
+# of this software and associated documentation files (the "Software"), to deal	#
+# in the Software without restriction, including without limitation the rights	#
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell		#
+# copies of the Software, and to permit persons to whom the Software is			#
+# furnished to do so, subject to the following conditions:						#
+#																				#
+# The above copyright notice and this permission notice shall be included in all#
+# copies or substantial portions of the Software.								#
+# 																				#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR	#
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,		#
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE	#
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER		#
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,	#
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE	#
+# SOFTWARE.																		#
+#################################################################################
+
 import xml.etree.ElementTree as et
 from ast import literal_eval
-from typing import Any, Optional, Iterable, Callable
+from typing import Any, Optional, Iterable, Callable, List, Tuple, Dict
 from tygra.util import PO, AddrServer
 from abc import ABC, abstractmethod # Abstract Base Class
 import tkinter as tk
@@ -122,7 +144,7 @@ class Attributes(PO):
 					validator = self._choiceValidator
 			self.kind = kind
 			
-		def _doChoicesList2ValAndList(self, choices:list[str]) -> tuple[str,list]:
+		def _doChoicesList2ValAndList(self, choices:List[str]) -> Tuple[str,list]:
 			"""
 			A choices list is often specifically ordered, but the first item is the current value.
 			Therefore if we find the first element repeated in the rest of the list, we take the
@@ -174,7 +196,7 @@ class Attributes(PO):
 			return elem
 
 		@classmethod
-		def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> tuple[list[Any], dict[str, Any]]:
+		def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> Tuple[List[Any], Dict[str, Any]]:
 			args = []
 			kwargs = dict()
 
@@ -227,8 +249,8 @@ class Attributes(PO):
 		"""
 		super().__init__()
 		self._setOwner(owner)
-		self.attrs:dict[str,Any] = dict()
-		self.observers:list[AttrObserver] = []
+		self.attrs:Dict[str,Any] = dict()
+		self.observers:List[AttrObserver] = []
 		# run through to let the *defaults* settle in
 		for k in self.keys():
 			self.get(k)
@@ -242,7 +264,7 @@ class Attributes(PO):
 		return elem
 	
 	@classmethod
-	def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> tuple[list[Any], dict[str, Any]]:
+	def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> Tuple[List[Any], Dict[str, Any]]:
 		args = []
 		kwargs = dict()
 

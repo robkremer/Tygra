@@ -1,8 +1,30 @@
 """
 Layout hieristics
 """
+#################################################################################
+# (c) Copyright 2023, Rob Kremer, MIT open source license.						#
+#																				#
+# Permission is hereby granted, free of charge, to any person obtaining a copy	#
+# of this software and associated documentation files (the "Software"), to deal	#
+# in the Software without restriction, including without limitation the rights	#
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell		#
+# copies of the Software, and to permit persons to whom the Software is			#
+# furnished to do so, subject to the following conditions:						#
+#																				#
+# The above copyright notice and this permission notice shall be included in all#
+# copies or substantial portions of the Software.								#
+# 																				#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR	#
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,		#
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE	#
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER		#
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,	#
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE	#
+# SOFTWARE.																		#
+#################################################################################
+
 from abc import ABC, abstractmethod # Abstract Base Class
-from typing import Optional, Self, Union
+from typing import Optional, Union, Tuple, List, Dict
 from tygra.vobjects import VObject
 from tygra.vnodes import VNode
 from tygra.vrelations import VRelation
@@ -59,7 +81,7 @@ class LayoutHieristic(ABC):
 				 rect[2]+byRect[2],
 				 rect[3]+byRect[3]]
 				 
-	def findFree(self, node) -> tuple[int, int]:
+	def findFree(self, node) -> Tuple[int, int]:
 		expandBy = self.relSpacing if isinstance(node, VRelation) else self.spacing
 		rect = self.expand(node, byRect=expandBy)
 		rect = [int(i) for i in rect] # convert to integer
@@ -100,18 +122,18 @@ class LayoutHieristic(ABC):
 class CellLayout(LayoutHieristic):
 	class Cell:
 		def __init__(self, 	node	:VNode, 
-							parent	:Optional[Self]	=None, 
+							parent	:Optional		=None, 
 							row		:int			=0, 
 							col		:int			=-1,
-							leftSib	:Optional[Self]	=None,
-							rightSib:Optional[Self]	=None):
+							leftSib	:Optional		=None,
+							rightSib:Optional		=None):
 			self.col = col
 			self.row = row
 			self.node = node
 			self.parent = parent
 			self.leftSib = leftSib
 			self.rightSib = rightSib
-			self.children:Optional[list[Self]] = None
+			self.children:Optional[list] = None
 			self.width = 0
 			self.rightMargin = -1
 		
@@ -164,7 +186,7 @@ class IsaHierarchy(CellLayout):
 			
 	def makeLayoutForNodes(self, nodes, topNode):
 
-		layers:list[list[MNode]] = []
+		layers:List[List[MNode]] = []
 
 		def findLayer(mNode, topNode) -> int:
 			"Return the shortest isa-distance from the *mNode* to *topNode*."
@@ -195,7 +217,7 @@ class IsaHierarchy(CellLayout):
 						return n
 			return None
 		
-		def makeTree(n:VNode, done=[]) -> list[Union[VNode,list]]:
+		def makeTree(n:VNode, done=[]) -> List[Union[VNode,list]]:
 			"""
 			Make a list tree (eg: [n1 [n1.1, n1.2], n2, [n2.1]]) representing the 
 			isa hierarchy of the nodes in the view.
@@ -215,7 +237,7 @@ class IsaHierarchy(CellLayout):
 				tree.append(children)
 			return tree
 			
-		def moveAll(cells:list[CellLayout.Cell], col:int):
+		def moveAll(cells:List[CellLayout.Cell], col:int):
 			right = col
 			for c in cells: right += c.width
 			right -= 1
@@ -243,12 +265,12 @@ class IsaHierarchy(CellLayout):
 			for c in reversed(cell.children):
 				centerChildren(c)
 
-		def makeLayout(	tree	:list[Union[VNode,list]], 
-						rowInfo	:dict[int,list[CellLayout.Cell]]	=dict(),
+		def makeLayout(	tree	:List[Union[VNode,list]], 
+						rowInfo	:Dict[int,List[CellLayout.Cell]]	=dict(),
 						parent	:CellLayout.Cell					=None, 
 						level	:int								=0, 
 						left	:CellLayout.Cell					=None) \
-							-> list[CellLayout.Cell]:
+							-> List[CellLayout.Cell]:
 			"""
 			Make a list of Cell objects, recursively as a isa-hierarchy tree and a rowInfo
 			structure containing all the same cells. Eg:
@@ -338,7 +360,7 @@ class IsaHierarchy(CellLayout):
 	def optimize(self, cells):
 		pass
 		
-	def position2(self, rowInfo:dict[int, list], xoffset, yoffset, cellWidth, cellHeight, vertical=True):
+	def position2(self, rowInfo:Dict[int, list], xoffset, yoffset, cellWidth, cellHeight, vertical=True):
 		maxX = 0
 		maxY = 0
 		for rowNum, row in rowInfo.items():
@@ -353,7 +375,7 @@ class IsaHierarchy(CellLayout):
 				
 		return maxX, maxY
 
-	def get2ndOffset(self, prevMinX, prevMinY, prevMaxX, prevMaxY) -> tuple[int, int]:
+	def get2ndOffset(self, prevMinX, prevMinY, prevMaxX, prevMaxY) -> Tuple[int, int]:
 		return prevMaxX, prevMinY 
 		
 	def validate(self, layout, rowInfo): # for debugging only
@@ -538,7 +560,7 @@ class IsaHierarchyHorizontal(IsaHierarchy):
 	def position2(self, cell, xoffset, yoffset, cellWidth, cellHeight):
 		return super().position2(cell, xoffset, yoffset, cellWidth, cellHeight, vertical=False)
 
-	def get2ndOffset(self, prevMinX, prevMinY, prevMaxX, prevMaxY) -> tuple[int, int]:
+	def get2ndOffset(self, prevMinX, prevMinY, prevMaxX, prevMaxY) -> Tuple[int, int]:
 		return prevMinX, prevMaxY
 		
 class IsaHierarchyHorizontalCompressed(IsaHierarchyCompressed, IsaHierarchyHorizontal):
@@ -584,8 +606,8 @@ class Nudge(LayoutHieristic):
 		super().__init__(view, **kwargs)
 		self.maxBumps = maxBumps
 	
-	def __call__(self, focus:VObject=None, _desperationFactor=0, _moved:dict[str,int]=None):
-		moved:dict[str,int] = _moved if _moved is not None else dict() # inf recursion prevention
+	def __call__(self, focus:VObject=None, _desperationFactor=0, _moved:Dict[str,int]=None):
+		moved:Dict[str,int] = _moved if _moved is not None else dict() # inf recursion prevention
 				
 		if focus is None:
 			for n in self.view.nodes+self.view.relations:
@@ -669,7 +691,7 @@ class Nudge(LayoutHieristic):
 	def isGlobal(self) -> bool: return True
 	
 class ObjectRowGALayout(LayoutHieristic):
-	def __init__(self, view, rowTypes:list[MNode],
+	def __init__(self, view, rowTypes:List[MNode],
 				cellWidth:Optional[int]=None, 
 				cellHeight:Optional[int]=None,
 				marginWidth=20, marginHeight=15, **kwargs):

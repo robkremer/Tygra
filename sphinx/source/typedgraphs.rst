@@ -1,14 +1,20 @@
 Module typedgraphs
 ==================
 
+.. automodule:: typedgraphs
+   :no-members:
+   :no-undoc-members:
+   :no-private-members:
+   :no-special-members:
+   
 .. contents::
    :local:
    :backlinks: none
 
-Class TypedGraphsContainer
+Class TygraContainer
 --------------------------
 
-.. autoclass:: typedgraphs.TypedGraphsContainer
+.. autoclass:: typedgraphs.TygraContainer
 
 Class TGModel
 -------------

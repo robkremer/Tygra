@@ -5,9 +5,30 @@ www.daniweb.com/programming/software-development/code/484591/a-tooltip-class-for
 
 Modified to include a delay time by Victor Zaccardo, 25mar16
 """
+#################################################################################
+# (c) Copyright 2023, Rob Kremer, MIT open source license.						#
+#																				#
+# Permission is hereby granted, free of charge, to any person obtaining a copy	#
+# of this software and associated documentation files (the "Software"), to deal	#
+# in the Software without restriction, including without limitation the rights	#
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell		#
+# copies of the Software, and to permit persons to whom the Software is			#
+# furnished to do so, subject to the following conditions:						#
+#																				#
+# The above copyright notice and this permission notice shall be included in all#
+# copies or substantial portions of the Software.								#
+# 																				#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR	#
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,		#
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE	#
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER		#
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,	#
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE	#
+# SOFTWARE.																		#
+#################################################################################
 
 import tkinter as tk
-from typing import Union, Callable, Self, Optional
+from typing import Union, Callable, Optional
 
 class CreateToolTip(object):
 	"""
@@ -15,17 +36,18 @@ class CreateToolTip(object):
 	"""
 	def __init__(self, widget, text:Union[str,Callable[[],str]]='', canvasID:Optional[int]=None, 
 				waitTime:int=500, wrapLength:int=180, 
-				shouldDisplay:Optional[Callable[[Self],bool]]=None):
+				shouldDisplay:Optional[Callable]=None):
 		"""
 		:param widget:		The widget at attach this tooltip to
 		:param text:		Either a string to display or a no-argument function returning a *str*
-		:param canvasID:	A required item ID if *widget* is a tk.Canvas, otherwise ignored.a
+		:param canvasID:	A required item ID if *widget* is a tk.Canvas, otherwise ignored.
 		:param waitTime:	The time to wait in msec. [default=500]
 		:param wrapLength:	The width to wrap at in pixels. [default=180]
 		:param shouldDisplay: A function taking this object as an argument returning a bool
 							indicating that this text tool is to be displayed. If not 
-							specified or None, the width will display only if the text
+							specified or None, the tooltip will display only if the text
 							(text or a function) is not a zero-length string.
+		:type shouldDisplay: Optional[Callable[[Self],bool]]
 		:throws TypeError:
 		:throws ValueError:
 		"""

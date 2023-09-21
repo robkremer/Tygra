@@ -1,9 +1,31 @@
+#################################################################################
+# (c) Copyright 2023, Rob Kremer, MIT open source license.						#
+#																				#
+# Permission is hereby granted, free of charge, to any person obtaining a copy	#
+# of this software and associated documentation files (the "Software"), to deal	#
+# in the Software without restriction, including without limitation the rights	#
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell		#
+# copies of the Software, and to permit persons to whom the Software is			#
+# furnished to do so, subject to the following conditions:						#
+#																				#
+# The above copyright notice and this permission notice shall be included in all#
+# copies or substantial portions of the Software.								#
+# 																				#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR	#
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,		#
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE	#
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER		#
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,	#
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE	#
+# SOFTWARE.																		#
+#################################################################################
+
 from tygra.mnodes import MNode
 from tygra.mobjects import MObject
 import xml.etree.ElementTree as et
 from ast import literal_eval
 from abc import ABC, abstractmethod # Abstract Base Class
-from typing import Any, Optional, Self, Union
+from typing import Any, Optional, Union, Tuple, List, Dict
 from tygra.util import AddrServer, IDServer, treeFlatten
 from tygra.attributes import Attributes, AttrOwner
 import tygra.app as app
@@ -18,7 +40,11 @@ class MRelation(MObject):
 	def system(self) -> bool:
 		return super().system
 		
-	def __init__(self, tgmodel, frm:MNode, to:MNode, typ:Union[Self,list[Self],None]=None, idServer:IDServer=None, _id:Optional[int]=None):
+	def __init__(self, tgmodel, frm:MNode, to:MNode, typ=None, idServer:IDServer=None, _id:Optional[int]=None):
+		"""
+		:param typ:
+		:type typ: Union[Self,List[Self],None]
+		"""
 		self.fromNode = frm
 		self.toNode = to
 		super().__init__(tgmodel, typ, idServer=idServer, _id=_id)
@@ -82,7 +108,7 @@ class MRelation(MObject):
 		return elem
 
 	@classmethod
-	def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> tuple[list[Any], dict[str, Any]]:
+	def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> Tuple[List[Any], Dict[str, Any]]:
 		args = []
 		kwargs = dict()
 		tgmodel = addrServer.idLookup(elem.get('tgmodel'))
@@ -273,13 +299,13 @@ class Isa(MRelation):
 		if self.fromNode in toAncestors: # and toAncestors[0] != tgmodel.topNode:
 			raise TypeError(f'Isa.__init__(): This relation would create a circular type hierarchy.')
 
-	def validateType(self, typ:Optional[Self], idServer):
+	def validateType(self, typ, idServer):
 		pass
 
 	def getTop(self):
 		return self.tgmodel.isa
 		
-	def getAttrParents(self) -> list[Attributes]:
+	def getAttrParents(self) -> List[Attributes]:
 		if self is self.tgmodel.isa: 	return []
 		else:							return [self.tgmodel.isa.attrs]
 

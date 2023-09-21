@@ -70,6 +70,13 @@ Sounds
 
 .. autofunction:: util.play
 
+XML
+---
+
+.. autofunction:: util.xmlEscape
+
+.. autofunction:: util.xmlUnescape
+
 List Manipulation
 -----------------
 

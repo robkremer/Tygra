@@ -2,11 +2,32 @@
 Required installs:
 	pip3 install matplotlib
 """
+#################################################################################
+# (c) Copyright 2023, Rob Kremer, MIT open source license.						#
+#																				#
+# Permission is hereby granted, free of charge, to any person obtaining a copy	#
+# of this software and associated documentation files (the "Software"), to deal	#
+# in the Software without restriction, including without limitation the rights	#
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell		#
+# copies of the Software, and to permit persons to whom the Software is			#
+# furnished to do so, subject to the following conditions:						#
+#																				#
+# The above copyright notice and this permission notice shall be included in all#
+# copies or substantial portions of the Software.								#
+# 																				#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR	#
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,		#
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE	#
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER		#
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,	#
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE	#
+# SOFTWARE.																		#
+#################################################################################
+
 from abc import ABC, abstractmethod # Abstract Base Class
-from typing import final
 import xml.etree.ElementTree as et
 from ast import literal_eval
-from typing import Any, Optional, Type, Union, Callable, Iterable, TypeVar, Generic, Self
+from typing import Any, Optional, Type, Union, Callable, Iterable, TypeVar, Generic, final, Tuple, Dict, List
 from string import whitespace
 import sys
 import tkinter as tk
@@ -69,7 +90,7 @@ class IDServer:
 		return self.makeIDString(self.getIDTuple(id))
 		
 	@staticmethod
-	def getLocalID(id:tuple|str|list):
+	def getLocalID(id:Union[tuple,str,list]):
 		if (isinstance(id, tuple) or isinstance(id, list)) and len(id)>0:
 			return id[-1]
 		if isinstance(id, str):
@@ -104,10 +125,10 @@ class IDServer:
 
 class AddrServer:
 	def __init__(self):
-# 		self.idLookupTable:dict[tuple[str,int],Any] = dict()
+# 		self.idLookupTable:Dict[Tuple[str,int],Any] = dict()
 		self.idLookupTable:WeakValueDictionary = WeakValueDictionary()
 	
-	def idLookup(self, id:tuple[str,int]) -> Any:
+	def idLookup(self, id:Tuple[str,int]) -> Any:
 		return self.idLookupTable[str(id)]
 
 	def idRegister(self, id, obj:Any):
@@ -133,12 +154,12 @@ class PO(ABC):
 			- Serialize to an xml Element the object.
 		
 		@classmethod
-		def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> tuple[list[Any], dict[str, Any]]
+		def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> Tuple[List[Any], Dict[str, Any]]
 			- Returns an (\*args, \*\*kwargs) tuple used in constructing on object of the class
 			  who's name is *elem*'s tag's name, based on the *elem*.)
 			  
 		@classmethod
-		def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> tuple[list[Any], dict[str, Any]]:
+		def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> Tuple[List[Any], Dict[str, Any]]:
 			- Returns an (\*args, \*\*kwargs) tuple for the constructor of the class found in the element's name.
 			  Called before the object to be unserialized is constructed and the values are 
 			  used in it's construction.
@@ -195,7 +216,12 @@ class PO(ABC):
 
 	@classmethod
 	@staticmethod
-	def makeObject(elem:et.Element, addrServer:AddrServer, typ:Optional[Type[Self]]=None) -> Self:
+	def makeObject(elem:et.Element, addrServer:AddrServer, typ:Optional[Type]=None):
+		"""
+		:param typ:
+		:type typ: Optional[Type[Self]]
+		:return: Type: Self
+		"""
 		className = elem.tag
 		klass = PO.getClass(className)
 		if klass == None:
@@ -234,7 +260,7 @@ class PO(ABC):
 
 	@classmethod
 	@abstractmethod
-	def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> tuple[list[Any], dict[str, Any]]:
+	def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> Tuple[List[Any], Dict[str, Any]]:
 		"""
 		Returns an (\*args, \*\*kwargs) tuple for the constructor of the class found in the element's name.
 		"""
@@ -260,7 +286,7 @@ T = TypeVar('T')
 class Categories(Generic[T]):
 	
 	def __init__(self):
-		self.categories:dict[str, Callable[[T]], bool] = dict()
+		self.categories:Dict[str, Callable[[T]], bool] = dict()
 		
 	def addCategory(self, name:str, test:Callable[[T], bool]):
 		self.categories[name] = test
@@ -297,7 +323,7 @@ def pointInRect(pt:Iterable[float], rect:Iterable[float]) -> bool:
 							(rect[2], rect[3]),
 							(rect[0], rect[3])])
 							
-def shiftRectToPoint(rect:Iterable[float], point:Iterable[float]) -> list[float]:
+def shiftRectToPoint(rect:Iterable[float], point:Iterable[float]) -> List[float]:
 	"""
 	:param pt: (x,y) 
 	:param rect: (x,y,x1,y1)
@@ -332,7 +358,7 @@ def pointInPoly(pt:Iterable[float], poly:Iterable[float]) -> bool:
 	bbPath = mplPath.Path(np.array(arr))
 	return bbPath.contains_point(pt)
 
-def midpoint(pt1:Iterable[float], pt2:Iterable[float]) -> list[float]:
+def midpoint(pt1:Iterable[float], pt2:Iterable[float]) -> List[float]:
 	"""
 	:param pt1: (x,y)
 	:param pt2: (x,y)
@@ -340,7 +366,7 @@ def midpoint(pt1:Iterable[float], pt2:Iterable[float]) -> list[float]:
 	"""
 	return ((pt1[0]+pt2[0])/2, (pt1[1]+pt2[1])/2)
 	
-def expandRect(rect:Iterable[float], spacing:Iterable[float]) -> list[float]:
+def expandRect(rect:Iterable[float], spacing:Iterable[float]) -> List[float]:
 	"""
 	:param rect: The rectangle to expand.
 	:param spacing: The vector of points to expand *rect* as [left, top, right, bottom].
@@ -351,7 +377,7 @@ def expandRect(rect:Iterable[float], spacing:Iterable[float]) -> list[float]:
 			 rect[2]+spacing[2],
 			 rect[3]+spacing[3]]
 	
-def normalizeRect(rect:Iterable[float]) -> list[float]:
+def normalizeRect(rect:Iterable[float]) -> List[float]:
 	"""
 	Fix up a rect (x,y,x1,y1) such that x<x1 and y<y1, in conformance to tk rules.
 	
@@ -398,7 +424,7 @@ def eventEqual(e1, e2):
 ########## SOUNDS ########################################################################
 ##########################################################################################
 
-def play(soundFile:Optional[str]):
+def play(soundFile:Optional[str]=None):
 	"""
 	Plays a sound file. So far, this is only implemented for mac.
 	
@@ -414,6 +440,30 @@ def play(soundFile:Optional[str]):
 		soundFile = '/System/Library/Sounds/'+soundFile
 	subprocess.Popen(["afplay", soundFile])
 
+
+##########################################################################################
+########## XML ###########################################################################
+##########################################################################################
+
+def xmlEscape( strXML: str ) -> str:
+	"""
+	Replaces the "&", "<", ">", and single and double quote characters with xml escape codes.
+	"""
+	return strXML	.replace("&", "&amp;") \
+					.replace("<", "&lt;") \
+					.replace(">", "&gt;") \
+					.replace("\"", "&quot;") \
+					.replace("'", "&apos;")
+
+def xmlUnescape( strXML: str ) -> str:
+	"""
+	Replaces XML escape codes with "&", "<", ">", and single and double quote characters.
+	"""
+	return strXML	.replace("&amp;", "&") \
+					.replace("&lt;", "<") \
+					.replace("&gt;", ">") \
+					.replace("&quot;", "\"") \
+					.replace("&apos;", "'")
 
 ##########################################################################################
 ########## LIST MANIPULATION #############################################################
@@ -470,7 +520,7 @@ from pprint import pprint
 ########## COLORS ########################################################################
 ##########################################################################################
 
-def colorInterpolation(color1:str, color2:str, count:int) -> list[str]:
+def colorInterpolation(color1:str, color2:str, count:int) -> List[str]:
 	"""
 	Given two string colors in the form "#xxxxxx" and a count, return a vector of *count*
 	length containing interpolated string colors (inclusive) between the two.

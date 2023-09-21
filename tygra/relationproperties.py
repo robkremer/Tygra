@@ -1,9 +1,31 @@
 from abc import ABC, abstractmethod # Abstract Base Class
-from typing import Union, Optional, Self, Any
+from typing import Union, Optional, Any, Tuple, List, Dict
 from tygra.mobjects import MObject
 from tygra.mnodes import MNode
 from tygra.mrelations import MRelation
 	 			
+#################################################################################
+# (c) Copyright 2023, Rob Kremer, MIT open source license.						#
+#																				#
+# Permission is hereby granted, free of charge, to any person obtaining a copy	#
+# of this software and associated documentation files (the "Software"), to deal	#
+# in the Software without restriction, including without limitation the rights	#
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell		#
+# copies of the Software, and to permit persons to whom the Software is			#
+# furnished to do so, subject to the following conditions:						#
+#																				#
+# The above copyright notice and this permission notice shall be included in all#
+# copies or substantial portions of the Software.								#
+# 																				#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR	#
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,		#
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE	#
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER		#
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,	#
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE	#
+# SOFTWARE.																		#
+#################################################################################
+
 class RelationProperty():
 
 	def __init__(self):
@@ -81,7 +103,11 @@ class TransitiveProperty(RelationProperty):
 if __name__ == "__main__":
 
 	class MObject(ABC):
-		def __init__(self, name, isa:Optional[Union[Self, list[Self]]]=[]):
+		def __init__(self, name, isa=[]):
+			"""
+			:param isa:
+			:type isa: Optional[Union[Self, List[Self]]]
+			"""
 			self.name = name
 			self.relations = []
 			if isa is None: isa = []
@@ -94,7 +120,7 @@ if __name__ == "__main__":
 		def __str__(self): return self.name
 		def __repr__(self): return self.name
 
-		def isa(self, nodeType:Optional[Union[Self, list[Self]]]=None) -> Union[bool, list[Self]]:
+		def isa(self, nodeType=None) -> Union[bool, list]:
 			"""
 			Check if this *MObject* is an isa-decendent of *nodeType* as related through
 			some chain of isa-relations. Or, if *nodeType* is *None*, then return a tree-list
@@ -106,7 +132,8 @@ if __name__ == "__main__":
 						flatten this tree-list to a simple list using *treeFlatten()*.
 					* *MObject*: return True iff *nodeType* is a isa-parent of this *MObject*.
 					* *[MObject]*: return True iff EVERY element of *nodeType* is a isa-parent of this *MObject*.
-			:return: a bool or a tree-list as above.
+			:type nodeType: Optional[Union[Self, List[Self]]]
+			:return: a bool or a tree-list as above. Type: Union[bool, List[Self]]
 			"""
 			if nodeType is None:
 				ret = []
@@ -129,7 +156,7 @@ if __name__ == "__main__":
 							return True
 				return False
 			
-		def isparent(self, nodeType:Optional[Union[Self, list[Self]]]=None) -> Union[bool, list[Self]]:
+		def isparent(self, nodeType=None) -> Union[bool, list]:
 			"""
 			Check if this *MObject* is an immediate isa-child of *nodeType* as related through
 			a single isa-relation. Or, if *nodeType* is *None*, then return a tree-list
@@ -140,7 +167,8 @@ if __name__ == "__main__":
 					* None: return a list of all the isa-parents of this *MObject*.
 					* *MObject*: return True iff *nodeType* is a isa-parent of this *MObject*.
 					* *[MObject]*: return True iff EVERY element of *nodeType* is a isa-parent of this *MObject*.
-			:return: a bool or a tree-list as above.
+			:type nodeType: Optional[Union[Self, List[Self]]]
+			:return: a bool or a tree-list as above. Type: Union[bool, List[Self]]
 			"""
 			if nodeType is None:
 				ret = []
@@ -161,7 +189,7 @@ if __name__ == "__main__":
 							return True
 				return False
 			
-		def isRelatedTo(self, relType, toNode:Self=None, _omit:set=set()) -> set[Self]:
+		def isRelatedTo(self, relType, toNode=None, _omit:set=set()) -> set:
 			"""
 			Check if this *MObject* is related to *nodeType* as related through
 			some chain of relations that are subtypes of *reltype*. Or, if *nodeType* is *None*, 
@@ -183,9 +211,10 @@ if __name__ == "__main__":
 						that is a subtype of *relType*. 
 					* *MObject*: return True iff *toNode* is related to this *MObject* through
 						 some chain of relations that are subtypes of *relType.
+			:type toNode: Self
 			:param _omit: Should never be used. Used ONLY by relational properties to prevent
 				infinite recursion in following relation chains.
-			:return: Depends on the *ToNode* argument, as above.
+			:return: Depends on the *ToNode* argument, as above. Type: set[Self]
 			"""
 			assert isinstance(relType, MRelation), f'MObject.isRelatedTo() [MObject]: Argument relType must be a MRelation or list of MRelations, but got argument of type {type(relType).__name__}.'
 			if toNode: # return a bool

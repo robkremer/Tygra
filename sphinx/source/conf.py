@@ -12,6 +12,7 @@
 #
 import os
 import sys
+from objc._convenience import __call__
 sys.path.insert(0, os.path.abspath('../..'))
 sys.path.insert(0, os.path.abspath('../../tygra'))
 print(f'python version {sys.version}')
@@ -35,7 +36,7 @@ release = '0.0'
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
-				"sphinx.ext.autodoc"
+				"sphinx.ext.autodoc",
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -55,15 +56,24 @@ exclude_patterns = []
 # html_theme = 'alabaster'
 # html_theme = "bizstyle"
 # html_theme = "pyramid"
-html_theme = "traditional"
-# html_theme = "classic"
+# html_theme = "traditional"
+html_theme = "classic"
 # html_theme = "agogo"
 # html_theme = "nature"
 # html_theme = "haiku"
 
-html_theme_options = {
-    "sidebarwidth": 300
-}
+html_theme_options = {}
+if html_theme == "traditional":
+	html_theme_options = {
+    	"sidebarwidth": 300
+		}
+elif html_theme == "classic":
+	html_theme_options = {
+		"sidebarwidth": 300,
+    	"rightsidebar": False,
+    	"collapsiblesidebar": True,
+		}
+
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -73,8 +83,14 @@ html_static_path = ['_static']
 autodoc_default_options = {
     'members': True,
     'member-order': 'bysource',
-    'special-members': '__init__',
+    'special-members': '__init__,__call__,__str__,__getitem__,__setitem__',
     'undoc-members': True,
     'private-members': False,
     'show-inheritance': True
-}
+} #[]
+
+rst_prolog = """.. image:: images/tygra-logo-small.png
+   :align: left
+   :height: 43
+   :width: 43
+"""

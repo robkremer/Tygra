@@ -19,6 +19,7 @@ Contents (:doc:`Simplified contents <devindex>`)
    attributes
    relationproperties
    layout
+   prefs
    app
    util
    loggingPanedWindow

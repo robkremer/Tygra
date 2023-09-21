@@ -16,6 +16,27 @@ Implements VNode and all its supporting classes:
    
 ----
 """
+#################################################################################
+# (c) Copyright 2023, Rob Kremer, MIT open source license.						#
+#																				#
+# Permission is hereby granted, free of charge, to any person obtaining a copy	#
+# of this software and associated documentation files (the "Software"), to deal	#
+# in the Software without restriction, including without limitation the rights	#
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell		#
+# copies of the Software, and to permit persons to whom the Software is			#
+# furnished to do so, subject to the following conditions:						#
+#																				#
+# The above copyright notice and this permission notice shall be included in all#
+# copies or substantial portions of the Software.								#
+# 																				#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR	#
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,		#
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE	#
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER		#
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,	#
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE	#
+# SOFTWARE.																		#
+#################################################################################
 import tkinter as tk
 #from tkinter import ttk
 from tygra.util import tag_bindRightMouse, tag_unbindRightMouse, pointInPoly, AddrServer, \
@@ -29,7 +50,7 @@ from abc import ABC, abstractmethod # Abstract Base Class
 from tygra.attributes import Attributes
 import xml.etree.ElementTree as et
 from ast import literal_eval
-from typing import Any, Optional, Iterable, Callable, Self
+from typing import Any, Optional, Iterable, Callable, Tuple, List, Dict
 import tygra.app as app
 from math import sqrt
 from tygra.tooltip import CreateToolTip
@@ -178,7 +199,7 @@ class VNode(VObject):
 		return elem
 
 	@classmethod
-	def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> tuple[list[Any], dict[str, Any]]:
+	def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> Tuple[List[Any], Dict[str, Any]]:
 		args = []
 		kwargs = dict()
 		tgview = addrServer.idLookup(elem.get('tgview'))
@@ -278,7 +299,7 @@ class VNode(VObject):
 
 	### GETTERS AND SETTERS ##############################################################
 
-	def boundingBox(self, rect:list[float]=None):
+	def boundingBox(self, rect:List[float]=None):
 		if rect != None:
 			self._shape.boundingBox(rect)
 			self.redraw()
@@ -479,7 +500,7 @@ class VNode(VObject):
 		for r in self.relations:
 			r.redraw()
 		
-	def overlaps(self, bb:list=None, others:Iterable=None, spacing:Optional[list]=None) -> list[VObject]:
+	def overlaps(self, bb:list=None, others:Iterable=None, spacing:Optional[list]=None) -> List[VObject]:
 		""
 		if bb is None:
 			bb = self.boundingBox() if spacing is None else expandRect(self.boundingBox(), spacing)
@@ -497,7 +518,11 @@ class VNode(VObject):
 				ret.append(n)
 		return ret
 
-	def expand(self, filter:Optional[Callable[[Self, MRelation], bool]]=lambda vn, mr: True):
+	def expand(self, filter:Optional[Callable[[Any, MRelation], bool]]=lambda vn, mr: True):
+		"""
+		:param filter:
+		:type filter: Optional[Callable[[Self, MRelation], bool]]
+		"""
 		rels = []
 		for mRel in self.model.relations:
 			if not self.tgview.categories.isCategory(mRel, self.tgview.hiddenCategories):
@@ -513,7 +538,11 @@ class VNode(VObject):
 				self.tgview.makeViewObjectForModelObject(r, atPoint=[x,y])
 				y += 50
 
-	def contract(self, filter:Optional[Callable[[Self, MRelation], bool]]=lambda vn, mr: True):
+	def contract(self, filter:Optional[Callable[[Any, MRelation], bool]]=lambda vn, mr: True):
+		"""
+		:param filter:
+		:type filter: Optional[Callable[[Self, MRelation], bool]]
+		"""
 		for mRel in self.model.relations:
 			if filter(self, mRel):
 				vRel = self.tgview.findViewObjectForModelObject(mRel)
@@ -901,7 +930,7 @@ class Shape:
 			newPoints.append(y)
 		return newPoints
 
-	def __init__(self, vnode:VNode, rect:list[float], **kwargs):
+	def __init__(self, vnode:VNode, rect:List[float], **kwargs):
 		"""
 		points: A list of numbers where the even (starting with zero) indices are x's and
 			the odd indices are y's. Must have an even number of elements.
@@ -928,7 +957,7 @@ class Shape:
 				1.0, 1.0, 
 				0.0, 1.0] # bounding box rectangle
 	
-	def points(self, rect:Optional[list[float]]=None) -> list[float]:
+	def points(self, rect:Optional[List[float]]=None) -> List[float]:
 		"""
 		:param rect: a rectangle taken as the bounding box for this Shape's points
 					in VIEW coordinates. 
@@ -1013,7 +1042,7 @@ class Rectangle(Shape):
 
 
 class RightParallelogram(Shape):
-	def __init__(self, vnode, rect:list[float], cutIn=0.05, **kwargs):
+	def __init__(self, vnode, rect:List[float], cutIn=0.05, **kwargs):
 		self.cutIn = cutIn
 		super().__init__(vnode, rect, **kwargs)
 
@@ -1032,7 +1061,7 @@ class RightParallelogram(Shape):
 	
 
 class LeftParallelogram(Shape):
-	def __init__(self, vnode, rect:list[float], cutIn=0.05, **kwargs):
+	def __init__(self, vnode, rect:List[float], cutIn=0.05, **kwargs):
 		self.cutIn = cutIn
 		super().__init__(vnode, rect, **kwargs)
 
@@ -1050,7 +1079,7 @@ class LeftParallelogram(Shape):
 				self.cutIn  , 1]
 
 class FileFolder(Shape):
-	def __init__(self, vnode, rect:list[float], cutIn=0.05, **kwargs):
+	def __init__(self, vnode, rect:List[float], cutIn=0.05, **kwargs):
 		self.cutIn = cutIn
 		super().__init__(vnode, rect, **kwargs)
 
@@ -1073,7 +1102,7 @@ class FileFolder(Shape):
 				0,		1]
 
 class TopPentagon(Shape):
-	def __init__(self, vnode, rect:list[float], cutIn=0.05, **kwargs):
+	def __init__(self, vnode, rect:List[float], cutIn=0.05, **kwargs):
 		self.cutIn = cutIn
 		super().__init__(vnode, rect, **kwargs)
 
@@ -1092,7 +1121,7 @@ class TopPentagon(Shape):
 				0,	1]
 
 class RightPentagon(Shape):
-	def __init__(self, vnode, rect:list[float], cutIn=0.05, **kwargs):
+	def __init__(self, vnode, rect:List[float], cutIn=0.05, **kwargs):
 		self.cutIn = cutIn
 		super().__init__(vnode, rect, **kwargs)
 
@@ -1111,7 +1140,7 @@ class RightPentagon(Shape):
 				0			,		1]
 
 class LeftPentagon(Shape):
-	def __init__(self, vnode, rect:list[float], cutIn=0.05, **kwargs):
+	def __init__(self, vnode, rect:List[float], cutIn=0.05, **kwargs):
 		self.cutIn = cutIn
 		super().__init__(vnode, rect, **kwargs)
 
@@ -1130,7 +1159,7 @@ class LeftPentagon(Shape):
 				0         ,	0.5]
 
 class Hexagon(Shape):
-	def __init__(self, vnode, rect:list[float], cutIn=0.05, **kwargs):
+	def __init__(self, vnode, rect:List[float], cutIn=0.05, **kwargs):
 		self.cutIn = cutIn
 		super().__init__(vnode, rect, **kwargs)
 
@@ -1150,7 +1179,7 @@ class Hexagon(Shape):
 				0           , 0.5]
 
 class RoundedShape(Shape):
-	def __init__(self, vnode, rect:list[float], sharpness=1.5, **kwargs):
+	def __init__(self, vnode, rect:List[float], sharpness=1.5, **kwargs):
 		"""
 		Based on https://stackoverflow.com/questions/44099594/how-to-make-a-tkinter-tgview-rectangle-with-rounded-corners.
 		"""
@@ -1160,7 +1189,7 @@ class RoundedShape(Shape):
 
 		super().__init__(vnode, rect, **kwargs)
 
-	def points(self, rect:Optional[list[float]]=None) -> list[float]: 
+	def points(self, rect:Optional[List[float]]=None) -> List[float]: 
 		sharpness = self.sharpness
 		polyPoints = self.template()
 		
@@ -1212,14 +1241,14 @@ class RoundedShape(Shape):
 		return self.transform([0,0,1,1], rect, points) # points in WINDOW coordinates
 
 class RoundedRectangle(RoundedShape):
-	def __init__(self, vnode, rect:list[float], sharpness=2, **kwargs):
+	def __init__(self, vnode, rect:List[float], sharpness=2, **kwargs):
 		super().__init__(vnode, rect, sharpness, **kwargs)
 		
 	@classmethod
 	def isPublic(cls): return True
 
 class Oval(Shape):
-	def __init__(self, vnode, rect:list[float], **kwargs):
+	def __init__(self, vnode, rect:List[float], **kwargs):
 		super().__init__(vnode, rect, **kwargs)		
 
 	@classmethod

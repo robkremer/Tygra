@@ -1,6 +1,28 @@
+#################################################################################
+# (c) Copyright 2023, Rob Kremer, MIT open source license.						#
+#																				#
+# Permission is hereby granted, free of charge, to any person obtaining a copy	#
+# of this software and associated documentation files (the "Software"), to deal	#
+# in the Software without restriction, including without limitation the rights	#
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell		#
+# copies of the Software, and to permit persons to whom the Software is			#
+# furnished to do so, subject to the following conditions:						#
+#																				#
+# The above copyright notice and this permission notice shall be included in all#
+# copies or substantial portions of the Software.								#
+# 																				#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR	#
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,		#
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE	#
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER		#
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,	#
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE	#
+# SOFTWARE.																		#
+#################################################################################
+
 import tkinter as tk
 from tkinter import ttk
-from typing import Any, Optional, Type, Union, Self, Union, Tuple, Callable, Iterable, TypeVar, Generic
+from typing import Any, Optional, Type, Union, Union, Tuple, Callable, Iterable, TypeVar, Generic, List, Dict
 from io import TextIOWrapper
 import sys
 import os
@@ -40,8 +62,16 @@ class LoggingPanedWindow(tk.PanedWindow):
 		def flush(self):
 			pass
 
-	def __init__(self, parent, frame:Callable[[Self],tk.Widget]=lambda p: tk.Frame(p), 
-				maxLines:int=24, visibleLines:int=2, logFiles:list[str]=None, 
+	@property
+	def maxLevelStr(self):
+		return LoggingPanedWindow.levelToTag[self.maxLevel]
+	
+	@maxLevelStr.setter
+	def maxLevelStr(self, val:str):
+		self.maxLevel = self._getLevel(val)
+
+	def __init__(self, parent, frame=lambda p: tk.Frame(p), 
+				maxLines:int=24, visibleLines:int=2, logFiles:List[str]=None, 
 				useStderr:bool=True, maxLevel:int=3, fixedAppFrame:bool=False, 
 				captureStdOutput:bool=True, 
 				soundError:Optional[str]='/System/Library/Sounds/Sosumi.aiff', 
@@ -53,6 +83,7 @@ class LoggingPanedWindow(tk.PanedWindow):
 						a widget that acts as the application window. This will be the
 						*self.appFrame* variable of the new *LoggingPanedWindow*. [default:
 						lambda p: ttk.Frame(p)]
+		:type frame: 	Callable[[Self], tk.Widget]
 		:param maxLines: The maximum number of lines the text widget frame will maintain.
 						User 0 for "infinite" [default: 24]
 		:param visibleLines: the number of lines the text widget will initially display.
@@ -155,7 +186,7 @@ class LoggingPanedWindow(tk.PanedWindow):
 	def _getLevel(obj):
 		if isinstance(obj, int): 
 			if obj < 0:  return -1
-			if obj > 3:  return 1
+			if obj > 3:  return 3
 			return obj
 		if isinstance(obj, str):
 			obj = obj.lower()

@@ -17,6 +17,7 @@ Contents (:doc:`Detailed contents <contents2>`)
    attributes
    relationproperties
    layout
+   prefs
    app
    util
    loggingPanedWindow
@@ -70,5 +71,3 @@ thier locations on the view canvas.
    :figwidth: 100%
    
    Fig. 2: Screenshot of a tygra view window (displaying a view of the above model)
-
-

@@ -2,7 +2,7 @@
 """
 This module contains the 3 fundamental container objects for **tygra**:
 
-*TypedGraphsContainer*:
+*TygraContainer*:
    Represents a file and may contain several models and their associated views
    
 *TGModel*:
@@ -15,6 +15,28 @@ This module contains the 3 fundamental container objects for **tygra**:
    
 ---------
 """
+#################################################################################
+# (c) Copyright 2023, Rob Kremer, MIT open source license.						#
+#																				#
+# Permission is hereby granted, free of charge, to any person obtaining a copy	#
+# of this software and associated documentation files (the "Software"), to deal	#
+# in the Software without restriction, including without limitation the rights	#
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell		#
+# copies of the Software, and to permit persons to whom the Software is			#
+# furnished to do so, subject to the following conditions:						#
+#																				#
+# The above copyright notice and this permission notice shall be included in all#
+# copies or substantial portions of the Software.								#
+# 																				#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR	#
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,		#
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE	#
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER		#
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,	#
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE	#
+# SOFTWARE.																		#
+#################################################################################
+
 import sys
 import os
 import tkinter as tk
@@ -25,14 +47,13 @@ from math import sqrt
 import gc
 import xml.etree.ElementTree as et
 from ast import literal_eval
-from typing import Any, Optional, Type, Union, Tuple, Callable, Iterable, TypeVar, Generic, Self
+from typing import Any, Optional, Type, Union, Tuple, Callable, Iterable, TypeVar, Generic, Dict, List
 from tygra import prefs
 import webbrowser
 import pathlib
 from urllib.parse import urlparse
 import urllib
 from pip._vendor import requests
-from fontTools.colorLib import geometry
 
 sys.path.append(os.path.dirname(__file__))
 from tygra.weaklist import WeakList
@@ -46,21 +67,21 @@ from tygra.vnodes import VNode
 from tygra.vrelations import VRelation, VIsa
 import tygra.app as app
 from tygra.loggingPanedWindow import LoggingPanedWindow 
-from tygra.prefs import Prefs
+from tygra.prefs import Prefs, Pref
 			
 		
 ##########################################################################################
-############################## class TypedGraphsContainer ################################
+############################## class TygraContainer ################################
 ##########################################################################################
 
-class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
+class TygraContainer(tk.Tk, IDServer, AddrServer):
 	"""
 	A top-level TK window displaying the model/view directory for a TypedGraphs file.
 	Also acts as a top-level ID creation server and an id-to-address server for a all
 	models/views in the file.
 	"""
 	
-	_instances:WeakList[Self] = WeakList()
+	_instances:WeakList = WeakList() # type: WeakList[Self]
 
 	### Constructor and helpers ##########################################################
 	
@@ -82,43 +103,35 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		:param goemetry: The initial geometry string for the window.
 		"""
 		super().__init__()
-		TypedGraphsContainer._instances.append(self)
-		self.protocol("WM_DELETE_WINDOW", self.onClosing)
+		TygraContainer._instances.append(self)
 		self.option_add('*tearOff', tk.FALSE)
 		self.menu = self.makeMenu()
 		self.config(menu=self.menu)
 		self.createcommand('tk::mac::ShowPreferences', self.showPreferencesDialog)
 		self.createcommand('tk::mac::ShowHelp', self.showHelp)
+		self.protocol("WM_DELETE_WINDOW", self.onClosing)
 		IDServer.__init__(self, None)
 		AddrServer.__init__(self)
 		self.nextID(0) # reserve id 0 for self
-		self.views:list[TGView] = []
-		self.models:list[TGModel] = []
+		self.views:List[TGView] = []
+		self.models:List[TGModel] = []
 		self.idRegister(app.CONTAINER_ID, self)
 		self.directory = None
 		self.topFrame = None
-		
-		if helppath is None:
-			dir_,_ = os.path.split(__file__)
-			helppath = os.path.abspath(os.path.join(dir_,'html'))
-		if urlparse(helppath).scheme == "": # helpPath isn't a URL
-			self.helpURL = pathlib.Path(helppath).as_uri()
-		else:
-			self.helpURL = helppath
-		if not self.helpURL.endswith('/'):
-			self.helpURL += '/'
-		print(f'helpPath = {self.helpURL}')
-				
+			
 		# Do the file dialog thing
-		if filename == '<new>': # special tag to force creation of a brand new model
-			self.filename = None
-		elif filename is None: # no filename, use the open-file dialog
-			self.filename = None
-			self.filename, tree = self.openFile(None)
-		else: # we were given a filename, open it (openFile() only uses a dialog in case the filename is bad)
-			self.filename = filename
+		self.filename = None
+		if filename != '<new>': # special tag to force creation of a brand new model
+#			self.filename = None
+#			pass
+#		else:
 			self.filename, tree = self.openFile(filename)
-					
+#		elif filename is None: # no filename, use the open-file dialog
+#			self.filename = None
+#			self.filename, tree = self.openFile(None)
+#		else: # we were given a filename, open it (openFile() only uses a dialog in case the filename is bad)
+#			self.filename = filename
+#			self.filename, tree = self.openFile(filename)
 
 		# We have a filename, so build the actual interface
 		if self.filename is not None: # we have filename, read it.
@@ -126,19 +139,92 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 			
 		# Create a brand new model (either we were requested "<new>" or the user declined to open a file)
 		else: # create a brand new model and view
-			self.logger = LoggingPanedWindow(self, self.makeRecordsFrame, logFiles=sys.stdout, fixedAppFrame=True)
-			
-		
+			self.logger = LoggingPanedWindow(self, self.makeRecordsFrame, fixedAppFrame=True)
+					
 		self.title(f'{app.APP_LONG_NAME}{(": "+os.path.basename(self.filename)) if self.filename is not None else ""}')
 		self.logger.write(f"{app.APP_LONG_NAME} file window initialized.")
 		if geometry is not None:
 			self.logger.winfo_toplevel().geometry(geometry)
+			
+		# set up prefs
+		self.prefs = Prefs()
+		self.helpURL = ""
+		self.prefs.bind("helpURL", self, "text", "Help location", 
+				help="A URI to the root directory of the program html help files. May be specified as an ordinary file path (which will be changed to a 'file:' URI).",
+				validatorFunc=self.validateHelpURL, pythonType=str)
+		self.prefs.bind("maxLevelStr", self.logger, "choices:normal:warning:informational:debug",
+				"Message filter", help="The maximum severity level to display in the message pane.")
+		try:
+			self.prefs.read()
+		except Exception as ex:
+			self.logger.write(f'TygraContainer.__init__(): Exception while reading prefs.', exception=ex)
+		
+		# if helppath is given as a param, use that one by setting it in prefs (which also sets self.helpURL)
+		try:
+			if helppath is not None:
+				self.prefs["helpURL"] = helppath
+			assert self.helpURL is not None and len(self.helpURL)>0
+		except:
+			try:
+				if self.helpURL is None or len(self.helpURL.strip())==0 or self.validateHelpURL(self.helpURL) is None:
+					self.prefs["helpURL"] = "" # force an aggressive search
+			except Exception as ex:
+				self.owner.logger.write(f'TygraContainer.setHelpURL(): Exception setting self.helpURL.', level="error")
+		
 		
 	def destroy(self) -> None:
-		TypedGraphsContainer._instances.remove(self)
+		TygraContainer._instances.remove(self)
 		self.logger.delete()
 		super().destroy()
-		
+
+	### Find the help files ##############################################################
+	@staticmethod
+	def validateHelpURL(value:str):
+		# establish a default if necessary
+		if value is None or len(value.strip())==0:
+			# search for the html files
+			dot, _ = os.path.split(__file__)
+			places = [	os.path.join(dot,'html'),
+						os.path.realpath(os.path.join(dot,'../html')),
+						os.path.realpath(os.path.join(dot,'../sphinx/build/html'))]
+			for p in places:
+				if os.path.exists(os.path.join(p, 'typedgraphs.html')):
+					value = p
+					break
+		# if the string is a file, turn it into a URI
+		if urlparse(value).scheme == "": # helpPath isn't a URI
+			helpURL = pathlib.Path(value).as_uri()
+		else:
+			helpURL = value
+		if not helpURL.endswith('/'):
+			helpURL += '/'
+				
+		# determine if the URI exists
+		if str(helpURL).startswith("file:///"):
+			if not os.path.exists(helpURL[7:].replace("%20"," ")):
+				try:
+					self.owner.logger.write(f'TygraContainer.setHelpURL.validate(): Can\'t find file {helpURL[7:].replace("%20"," ")}.', level="error")
+				except:
+					sys.__stderr__.write(f'TygraContainer.setHelpURL.validate(): Can\'t find file {helpURL[7:].replace("%20"," ")}.\n')
+				helpURL = None
+		else:
+			ok = True
+			statusCode = "request failed"
+			try:
+				r = requests.head(helpURL)
+				statusCode = r.status_code
+				if r.status_code != 200:
+					ok = False
+			except:
+				ok = False
+			if not ok:
+				try:
+					self.owner.logger.write(f'TygraContainer.setHelpURL.validate(): Can\'t find URL {helpURL}: Status code: {statusCode}.', level="error")
+				except:
+					sys.__stderr__.write(f'TygraContainer.setHelpURL.validate(): Can\'t find URL or invalid URL {helpURL}: Status code: {statusCode}.\n')
+				helpURL = None
+		return helpURL
+
 	### Directory Frame and helpers ######################################################
 
 	class ViewRecord:
@@ -147,12 +233,16 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 			assert 	viewData is None or \
 					isinstance(viewData, et.Element) or \
 					isinstance(viewData, TGView)
+			if not isinstance(viewName, tk.StringVar):
+				viewName = tk.StringVar(value=str(viewName))
 			self.viewName = viewName
 			self.viewData = viewData
 	class ModelRecord:
 		"""A very simple record class for Model information."""
 		def __init__(self, modelName:tk.StringVar, modelData, viewRecords:dict=dict()):
 			assert 	modelData is None or isinstance(modelData, TGModel)
+			if not isinstance(modelName, tk.StringVar):
+				modelName = tk.StringVar(value=str(modelName))
 			self.modelName = modelName
 			self.modelData = modelData
 			self.viewRecords = viewRecords
@@ -168,6 +258,7 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 			3. We have changed the dictionary and need to refresh the frame (*parent* and 
 				*tree* are both None and *self.directory* is not None)
 		"""
+		# if this is the first call, create the frame, otherwise empty the frame to start afresh.
 		if self.topFrame is None:
 			assert parent is not None
 			self.topFrame = tk.Frame(parent, width=300, height=50)
@@ -176,14 +267,14 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 				widget.destroy()
 		
 		if tree is None:
-			if self.directory is None: # case 3 (new file)
+			if self.directory is None: # case 1 (new file)
 				self.doNewModel()
-			else: # case 1 (refreshing after a directory change)
+			else: # case 3 (refreshing after a directory change)
 				pass
 		else: # case 2 (reading in from a file)
 			root = tree.getroot()
 			if root.tag != "typedgraphs":
-				raise ValueError(f'TypedGraphsContainer(): {self.filename} is not a typedgraphs file.')
+				raise ValueError(f'TygraContainer(): {self.filename} is not a typedgraphs file.')
 			self.readDirectory(root)
 			self.readModelsAndViews(root)
 			geometry = root.get('geometry')
@@ -237,16 +328,16 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		records in *self.directory.  If there is not directory, *self.directory* will be an
 		empty *dict*.
 		"""
-		self.directory:dict[str,TypedGraphsContainer.ModelRecord] = dict()
+		self.directory:Dict[str,TygraContainer.ModelRecord] = dict()
 		directoryElem = root.find('directory')
 		if directoryElem is not None:
 			for model in directoryElem.iterfind("model"):
 				id = model.get('id')
 				modelName = model.get('name')
-				self.directory[id] = TypedGraphsContainer.ModelRecord(tk.StringVar(value=modelName), None, dict())
+				self.directory[id] = TygraContainer.ModelRecord(tk.StringVar(value=modelName), None, dict())
 				for view in model.iterfind('view'):
 					self.directory[id].viewRecords[view.get('id')] = \
-						TypedGraphsContainer.ViewRecord(tk.StringVar(value=view.get('name')), None)
+						TygraContainer.ViewRecord(tk.StringVar(value=view.get('name')), None)
 
 	def readModelsAndViews(self, root:et.Element):
 		"""
@@ -264,7 +355,7 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 			if id in self.directory:
 				self.directory[id].modelData = obj
 			else:
-				self.directory[id] = TypedGraphsContainer.ModelRecord(tk.StringVar(value=id), obj, dict())
+				self.directory[id] = TygraContainer.ModelRecord(tk.StringVar(value=id), obj, dict())
 		for view in views:
 			modelID = view.get('model')
 			model = self.directory[modelID]
@@ -273,7 +364,7 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 			if id in model.viewRecords:
 				model.viewRecords[id].viewData = view
 			else:
-				model.viewRecords[id] = TypedGraphsContainer.ViewRecord(tk.StringVar(value=id), view)
+				model.viewRecords[id] = TygraContainer.ViewRecord(tk.StringVar(value=id), view)
 		self.nextID(maxID)
 		
 	### Directory popup menus and helpers ################################################
@@ -312,9 +403,9 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		if isinstance(rec.viewData, et.Element):
 			rec.viewData = self.openView(rec.viewData)
 		elif isinstance(rec.viewData, TGView):
-			raise TypeError("TypedGraphsContainer.doOpenView(): Don't know what to do with an already-open TGView.")
+			raise TypeError("TygraContainer.doOpenView(): Don't know what to do with an already-open TGView.")
 		else:
-			raise TypeError(f"TypedGraphsContainer.doOpenView(): Unexpected type: {type(rec.viewData).__name__}.")
+			raise TypeError(f"TygraContainer.doOpenView(): Unexpected type: {type(rec.viewData).__name__}.")
 
 	def doNewView(self, modelRecord:ModelRecord):
 		"""
@@ -323,7 +414,7 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		"""
 		view = TGView(self, self, modelRecord.modelData, self)
 		self.directory[modelRecord.modelData.idString].viewRecords[view.idString] = \
-				TypedGraphsContainer.ViewRecord(tk.StringVar(value=view.idString), view)
+				TygraContainer.ViewRecord(tk.StringVar(value=view.idString), view)
 		self.makeRecordsFrame()
 		for mn in view.model._nodes:
 			if view.model.topNode in mn.isparent() and not view.categories.isCategory(mn, view.hiddenCategories):
@@ -331,6 +422,7 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 				vn.expand()
 		layouts.IsaHierarchyHorizontalCompressed(view)()
 		
+	# TODO: bug: for some reason the .idString names don't show up in the tk.Entry's boxes. They do when it's read in from XML...
 	def doNewModel(self):
 		"""
 		Creates a brand new model, updating *self.directory*, then calls *self.makeRecordsFrame()*
@@ -338,14 +430,11 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		"""
 		model = TGModel(self, self)
 		view = TGView(None, self, model)
-		viewRecord = {view.idString: TypedGraphsContainer.ViewRecord(
+		viewRecord = {view.idString: TygraContainer.ViewRecord(
 			tk.StringVar(value=view.idString), view)}
 		if self.directory is None:
-			self.directory = {model.idString: TypedGraphsContainer.ModelRecord( \
-				tk.StringVar(value=model.idString),
-				model, viewRecord)}
-		else:
-			self.directory[model.idString] = TypedGraphsContainer.ModelRecord( \
+			self.directory = dict()
+		self.directory[model.idString] = TygraContainer.ModelRecord( \
 				tk.StringVar(value=model.idString),
 				model, viewRecord)
 		self.makeRecordsFrame()
@@ -372,11 +461,8 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		self.makeRecordsFrame()
 		
 	def onClosing(self):
-		p = prefs.Prefs()
-#		p.load()
-		p.save()
+		self.prefs.save()
 		self.destroy()
-
 		
 	def setModelName(self, model, name:str):
 		"""Sets the entry for *model* to *name* in *self.directory*."""
@@ -410,7 +496,7 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		
 	### Persistence ######################################################################
 
-	def openFile(self, filename:Optional[str]=None) -> tuple[Optional[str], Optional[et.Element]]:
+	def openFile(self, filename:Optional[str]=None) -> Tuple[Optional[str], Optional[et.Element]]:
 		"""
 		:param filename: A filename to read. If this is *None* using the open-file dialog
 					to get an actual filename.
@@ -421,7 +507,7 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		signature is not correct.
 		"""
 		if filename is None or len(filename) == 0:
-			if self.filename:
+			if self.filename is not None:
 				directory, fname = os.path.split(self.filename)
 			else:
 				directory ='.'
@@ -455,7 +541,7 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		Given a TGView element, return a *TGView* object.
 		"""
 		if elem.tag != "TGView":
-			raise ValueError(f'TypedGraphsContainer.openView(): argument is not a TGView element.')
+			raise ValueError(f'TygraContainer.openView(): argument is not a TGView element.')
 		ret = PO.makeObject(elem, self, TGView)
 		viewRec = self.lookupViewInDirectory(ret.idString)
 		viewRec.viewData = ret
@@ -470,16 +556,16 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		if view in self.views:
 			self.views.remove(view)
 		else:
-			self.logger.write(f'TypedGraphsContainer.notifyViewDeleted(): Trying to delete an unregisterd view {view.idString}.', level='warning')
+			self.logger.write(f'TygraContainer.notifyViewDeleted(): Trying to delete an unregisterd view {view.idString}.', level='warning')
 		modelID = view.model.idString
 		viewRecord = self.directory[modelID].viewRecords[view.idString]
 		viewRecord.viewData = view.xmlRepr()
 		
-	def openNewInstance(self, filename:Optional[str]=None):
+	def openNewFileInstance(self, filename:Optional[str]=None):
 		"""
 		Open a new instance of a *TypedgraphsContainer* and call it *mainloop()*.
 		"""
-		root = TypedGraphsContainer(filename)
+		root = TygraContainer(filename)
 		root.mainloop()
 
 	def saveFile(self):
@@ -534,7 +620,7 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 					elif isinstance(vr.viewData, et.Element):
 						x = vr.viewData
 					else:
-						assert False, f"TypedGraphsContainer.saveFile(): Expecting either a TGView or a et.Element, got {type(v).__name__}."
+						assert False, f"TygraContainer.saveFile(): Expecting either a TGView or a et.Element, got {type(v).__name__}."
 					topElem.append(x)
 		tree = et.ElementTree(element=topElem)
 		et.indent(tree, space='  ', level=0)
@@ -543,17 +629,13 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		self.logger.write(f'Saved to {self.filename}', level='info')
 		
 	def closeAllFiles(self):
-		print("closeAllFiles()")
 		prefs = Prefs()
 		prefs.save()
-		print(f"saved, instances={TypedGraphsContainer._instances}")
-		for tgc in list(TypedGraphsContainer._instances):
-			print(f"About to destroye TypedGraphsContainter, file {tgc.filename}")			
+		for tgc in list(TygraContainer._instances):
 			try:
 				tgc.destroy()
 			except:
 				pass
-			print(f"Destroyed TypedGraphsContainter, file {tgc.filename}")
 
 	### Menu Bar menus and helpers #######################################################
 
@@ -563,17 +645,16 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		
 		appmenu = tk.Menu(menubar, name="apple")
 		appmenu.add_command(label="About...", command=self.showAbout)
-#		appmenu.add_command(label="Quit "+app.APP_LONG_NAME, command=self.quit)
 		appmenu.add_separator()
 		menubar.add_cascade(menu=appmenu)
-		
+			
 		# file menu
 		filemenu = tk.Menu(menubar)
 		newmenu = tk.Menu(filemenu)
-		newmenu.add_command(label="New File", command=lambda: self.openNewInstance('<new>'))
+		newmenu.add_command(label="New File", command=lambda: self.openNewFileInstance('<new>'))
 		newmenu.add_command(label="New Model", command=lambda: self.doNewModel())
 		filemenu.add_cascade(label="New", menu=newmenu)
-		filemenu.add_command(label="Open...", command=self.openNewInstance)
+		filemenu.add_command(label="Open...", command=self.openNewFileInstance)
 		filemenu.add_command(label="Save...", command=self.saveFile)
 		filemenu.add_command(label="Close All", command=self.closeAllFiles)
 		menubar.add_cascade(label="File", menu=filemenu)
@@ -583,16 +664,16 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 		windowmenu = tk.Menu(menubar, name='window')
 		menubar.add_cascade(menu=windowmenu, label='Window')
 
-		helpmenu = tk.Menu(menubar, name="help")
-		helpmenu.add_command(label="Help Index", command=self.showHelp)
+		helpmenu = tk.Menu(menubar, name="help") # on Mac, the "Python help" menu item automatically shows up.
 		menubar.add_cascade(label="Help", menu=helpmenu)
 
 		return menubar
 		
 	# TODO: Implement application help
-	def showHelp(self, relPagePath="index.html"):
+	def showHelp(self, relPagePath:str="index.html"):
 		"""
-		Shoow help info for the application.
+		:param relPagePath: the path, relative to the help root directory, of the help page requested. [default: "index.html"]
+		Show help info for the application.
 		"""
 		url = urllib.parse.urljoin(self.helpURL, relPagePath)
 		try:
@@ -600,15 +681,15 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 				if os.path.exists(url[7:].replace("%20"," ")):
 					webbrowser.open(url, new=0, autoraise=True)
 				else:
-					self.logger.write(f'TypedGraphsContainer.showHelp(): Can\'t find file {url[7:]}.', level="error")
+					self.logger.write(f'TygraContainer.showHelp(): Can\'t find file {url[7:]}.', level="error")
 			else:
 				r = requests.head(url)
 				if r.status_code == 200:
 					webbrowser.open(url, new=0, autoraise=True)
 				else:
-					self.logger.write(f'TypedGraphsContainer.showHelp(): Can\'t find URL {url}: Status code {r.status_code}.', level="error")
+					self.logger.write(f'TygraContainer.showHelp(): Can\'t find URL {url}: Status code {r.status_code}.', level="error")
 		except Exception as ex:
-			self.logger.write("TypedGraphsContainer.showHelp(): cannot open {url}.", level="error", exception=ex)
+			self.logger.write(f"TygraContainer.showHelp(): cannot open {url}.", level="error", exception=ex)
 		
 	def showAbout(self):
 		"""
@@ -621,11 +702,13 @@ class TypedGraphsContainer(tk.Tk, IDServer, AddrServer):
 			message=f'''{app.APP_LONG_NAME}, version {app.VERSION}
 						  by Rob Kremer''',
 			)
-			
-	# TODO: implement the preferences dialog
-	def showPreferencesDialog(self):
-		self.logger.write("TypedGraphsContainer.showPreferencesDialog(): not implemented.", level="warning")
 
+	def showPreferencesDialog(self):
+		"""
+		Bring up the preferences dialog.
+		"""
+		self.prefs.edit(self, "Tygra Preferences")
+			
 ##########################################################################################
 ################################## class TGModel #########################################
 ##########################################################################################
@@ -656,7 +739,7 @@ class TGModel(PO, IDServer):
 		except:
 			return self._tempLogger
 			
-	def __init__(self, container:TypedGraphsContainer, idServer:IDServer=None, 
+	def __init__(self, container:TygraContainer, idServer:IDServer=None, 
 				addrServer:AddrServer=None, _id:Optional[int]=None):
 		self._tempLogger = _TempLogger()
 		# call the IDServer constructor
@@ -665,11 +748,11 @@ class TGModel(PO, IDServer):
 		# call the PO (persistent object) constructor
 		PO.__init__(self, idServer=idServer if idServer else container, _id=_id)
 		
-		self.container:TypedGraphsContainer = container
+		self.container:TygraContainer = container
 		container.models.append(self)
 		
-		self._nodes:list[MNode] = []
-		self._relations:list[MRelation] = []
+		self._nodes:List[MNode] = []
+		self._relations:List[MRelation] = []
 		self.observers = WeakList()
 		
 		self.topNode = None
@@ -680,7 +763,6 @@ class TGModel(PO, IDServer):
 		self.topNode.attrs["fillColor"] = "white"
 		self.topNode.attrs["borderColor"] = "black"
 		self.topNode.attrs["textColor"] = "black"
-# 		self.topNode.attrs["shape"] = "Rectangle"
 		from tygra.vnodes import Shape
 		self.topNode.attrs.add("shape", "Rectangle", kind='choices', validator=Shape.shapeValidator)
 		self.topNode.attrs["aspectRatio"] = 0.5
@@ -688,7 +770,7 @@ class TGModel(PO, IDServer):
 		self.topNode.attrs.add("label", app.TOP_NODE, default="")
 		self.topNode.attrs.add("type", True, kind='bool', default=False, editable=False)
 		self.topNode.attrs.add("notes", "All nodes inherit from this one.", kind='mtext', default="")
-		self.logger.write(f'topNode: {self.topNode.idString}', level='debug')
+#		self.logger.write(f'topNode: {self.topNode.idString}', level='debug')
 
 		# (1,1)
 		self.topRelation = MRelation(self, frm=self.topNode, to=self.topNode, idServer=self)
@@ -702,28 +784,28 @@ class TGModel(PO, IDServer):
 		self.topRelation.attrs.add("label", app.TOP_RELATION)
 		self.topRelation.attrs.add("type", True, kind='bool', default=False, editable=False)
 		self.topRelation.attrs.add("notes", "All relations inherit from this one.", kind='mtext', default="")
-		self.logger.write(f'topRelation: {self.topRelation.idString}', level='debug')
+#		self.logger.write(f'topRelation: {self.topRelation.idString}', level='debug')
 
 		# (1,2), isa:(1,3)
 		self.reflexiveRelation = MRelation(self, frm=self.topNode, to=self.topNode, typ=self.topRelation, idServer=self)
 		self.reflexiveRelation.attrs.add("relationProperties", set(["ReflexiveProperty"]), kind='set', system=True)
 		self.reflexiveRelation.attrs["label"] = "REFLEXIVE"
 		self.reflexiveRelation.attrs.add("type", True, kind='bool', default=False, editable=False)				
-		self.logger.write(f'reflexiveRelation: {self.reflexiveRelation.idString}', level='debug')
+#		self.logger.write(f'reflexiveRelation: {self.reflexiveRelation.idString}', level='debug')
 
 		# (1,4), isa:(1,5)
 		self.symmetricRelation = MRelation(self, frm=self.topNode, to=self.topNode, typ=self.topRelation, idServer=self)
 		self.symmetricRelation.attrs.add("relationProperties", set(["SymmetricProperty"]), kind='set', system=True)
 		self.symmetricRelation.attrs["label"] = "SYMMETRIC"
 		self.symmetricRelation.attrs.add("type", True, kind='bool', default=False, editable=False)
-		self.logger.write(f'symmetricRelation: {self.symmetricRelation.idString}', level='debug')
+#		self.logger.write(f'symmetricRelation: {self.symmetricRelation.idString}', level='debug')
 
 		# (1,6), isa:(1,7)
 		self.transitiveRelation = MRelation(self, frm=self.topNode, to=self.topNode, typ=self.topRelation, idServer=self)
 		self.transitiveRelation.attrs.add("relationProperties", set(["TransitiveProperty"]), kind='set', system=True)
 		self.transitiveRelation.attrs["label"] = "TRANSITIVE"
 		self.transitiveRelation.attrs.add("type", True, kind='bool', default=False, editable=False)
-		self.logger.write(f'transitiveRelation: {self.transitiveRelation.idString}', level='debug')
+#		self.logger.write(f'transitiveRelation: {self.transitiveRelation.idString}', level='debug')
 		
 		# (1,8), isa:(1,9)
 		self.isa = Isa(self, frm=self.topNode, to=self.topNode, idServer=self)
@@ -735,7 +817,7 @@ class TGModel(PO, IDServer):
 		self.isa.attrs["shape"] = "Oval"
 		self.isa.attrs["label"] = app.ISA
 		self.isa.attrs.add("type", True, kind='bool', default=False, editable=False)
-		self.logger.write(f'isa: {self.isa.idString}', level='debug')
+#		self.logger.write(f'isa: {self.isa.idString}', level='debug')
 
 		isa = Isa(self, frm=self.isa, to=self.transitiveRelation, idServer=self)
 
@@ -802,7 +884,7 @@ class TGModel(PO, IDServer):
 		return elem
 
 	@classmethod
-	def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> tuple[list[Any], dict[str, Any]]:
+	def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> Tuple[List[Any], Dict[str, Any]]:
 		args = []
 		kwargs = dict()
 		container = addrServer.idLookup(app.CONTAINER_ID)
@@ -892,11 +974,20 @@ class TGModel(PO, IDServer):
 
 	### Utility ##########################################################################
 	
-	def makeNode(self, typ:Union[Self,list[Self],None]=None):
+	def makeNode(self, typ=None):
+		"""
+		:param typ:
+		:type typ: Union[Self,List[Self],None]
+		"""
 		return MNode(self, typ, idServer=self)
 
-	def makeRelation(self, fromNode:MObject, toNode:MObject, typ:Union[Self,list[Self],None]=None):
-		"Return a new relation, unless there already is such a relation, then return that."
+	def makeRelation(self, fromNode:MObject, toNode:MObject, typ=None):
+		"""
+		Return a new relation, unless there already is such a relation, then return that.
+		
+		:param typ:
+		:type typ: Union[Self,List[Self],None]
+		"""
 		if not isinstance(typ, list):
 			typ = [typ]
 		for t in typ:
@@ -951,9 +1042,9 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 			keys = None
 			gc.collect()
 
-	def __init__(self, tkparent, container:TypedGraphsContainer, model:TGModel, 
+	def __init__(self, tkparent, container:TygraContainer, model:TGModel, 
 				idServer:IDServer=None, _id:Optional[int]=None, 
-				hiddenCategories:Optional[list[str]]=None, windowGeometry:Optional[str]=None, 
+				hiddenCategories:Optional[List[str]]=None, windowGeometry:Optional[str]=None, 
 				**kwargs):
 
 		self._clearIdLookupTable(container, _id)	
@@ -967,14 +1058,14 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 
 		### TGview stuff
 		self.readingPersistentStore = False
-		self.container:TypedGraphsContainer = container
+		self.container:TygraContainer = container
 		if model == None:
 			model = TGModel(container)
 		self.model:TGModel = model
 		self.model.addObserver(self)
 		self.container.views.append(self)
-		self.nodes:list[VNode] = []
-		self.relations:list[VRelation] = []
+		self.nodes:List[VNode] = []
+		self.relations:List[VRelation] = []
 		self.isModelEditor = True
 		self._suppressLocalLayout = False
 		self.newNodeCoords = (0, 0)
@@ -983,7 +1074,7 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 		self._scale = 1.0
 		self.newNodeDisplaySelectionPolicy = None
 		self.setNewNodeDisplaySelectionPolicy()
-		self.layoutObjects:dict[str,layouts.LayoutHieristic] = {
+		self.layoutObjects:Dict[str,layouts.LayoutHieristic] = {
 				"ISA hierarcy (vert)": layouts.IsaHierarchy(self),
 				"ISA hierarcy (vert, tight)": layouts.IsaHierarchyCompressed(self),
 				"ISA hierarcy (horz)": layouts.IsaHierarchyHorizontal(self),
@@ -1075,7 +1166,7 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 		self.bind('<MouseWheel>', self.onMouseWheel)
 		self.bind('<Shift-MouseWheel>', self.onShift_MouseWheel)
 	
-	def setScrollRegion(self, size:Optional[tuple[int,int]]=None):
+	def setScrollRegion(self, size:Optional[Tuple[int,int]]=None):
 		if size is None:
 			maxx = 0
 			maxy = 0
@@ -1092,7 +1183,7 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 			self.scrollRegion = [0, 0, size[0], size[1]]
 		self.configure(scrollregion=self.scrollRegion)
 		
-	def incrementScrollRegion(self, by:tuple[int,int]=(1000,750)):
+	def incrementScrollRegion(self, by:Tuple[int,int]=(1000,750)):
 		self.scrollRegion = [0, 0, self.scrollRegion[2]+by[0], self.scrollRegion[3]+by[1]]
 		self.configure(scrollregion=self.scrollRegion)
 		
@@ -1156,7 +1247,7 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 		return elem
 
 	@classmethod
-	def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> tuple[list[Any], dict[str, Any]]:
+	def getArgs(cls, elem: et.Element, addrServer:AddrServer) -> Tuple[List[Any], Dict[str, Any]]:
 		args = []
 		kwargs = dict()
 		args.append(None) # TODO: should we be passing a Window here?
@@ -1383,7 +1474,7 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 
 	### Utility ##########################################################################
 	
-	def viewToWindow(self, *args) -> list[float]:
+	def viewToWindow(self, *args) -> List[float]:
 		"""
 		:param args: Either a single list argument or multiple float parameters. In either case there 
 					must be an even number of items, taken as x,y pairs.
@@ -1399,7 +1490,7 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 			ret.append(n*self._scale)
 		return ret
 	
-	def windowToView(self, *args) -> list[float]:
+	def windowToView(self, *args) -> List[float]:
 		"""
 		:param args: Either a single list argument or multiple float parameters. In either case there 
 					must be an even number of items, taken as x,y pairs.
@@ -1655,5 +1746,5 @@ if __name__ == "__main__":
 # 			ns_application.setApplicationIconImage_(logo_ns_image)
 # 			print('installed icon')
 
-	root = TypedGraphsContainer(f"typedgraphs.{app.APP_FILE_EXTENSION}" if os.path.isfile(f"typedgraphs.{app.APP_FILE_EXTENSION}") else None)
+	root = TygraContainer(f"typedgraphs.{app.APP_FILE_EXTENSION}" if os.path.isfile(f"typedgraphs.{app.APP_FILE_EXTENSION}") else None)
 	root.mainloop()

@@ -1,6 +1,28 @@
+#################################################################################
+# (c) Copyright 2023, Rob Kremer, MIT open source license.						#
+#																				#
+# Permission is hereby granted, free of charge, to any person obtaining a copy	#
+# of this software and associated documentation files (the "Software"), to deal	#
+# in the Software without restriction, including without limitation the rights	#
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell		#
+# copies of the Software, and to permit persons to whom the Software is			#
+# furnished to do so, subject to the following conditions:						#
+#																				#
+# The above copyright notice and this permission notice shall be included in all#
+# copies or substantial portions of the Software.								#
+# 																				#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR	#
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,		#
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE	#
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER		#
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,	#
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE	#
+# SOFTWARE.																		#
+#################################################################################
+
 import tygra.attributes as at
 from abc import ABC, abstractmethod # Abstract Base Class
-from typing import final, Any, Optional, Type, Self, Union
+from typing import final, Any, Optional, Type, Union, Tuple, List, Dict
 import xml.etree.ElementTree as et
 from ast import literal_eval
 from string import whitespace
@@ -25,7 +47,11 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 	def system(self) -> bool:
 		return self.id < app.RESERVED_ID
 		
-	def __init__(self, tgmodel, typ:Union[Self,list[Self],None]=None, idServer:IDServer=None, _id:Optional[int]=None):
+	def __init__(self, tgmodel, typ=None, idServer:IDServer=None, _id:Optional[int]=None):
+		"""
+		:param typ:
+		:type typ: Union[Self,List[Self],None]
+		"""
 		super().__init__(idServer=idServer, _id=_id)
 		assert self.id is not None
 		self.tgmodel = tgmodel
@@ -45,7 +71,11 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 				Isa(self.tgmodel, frm=self, to=t, idServer=idServer)
 		self.tgmodel.register(self)
 		
-	def validateType(self, typ:Optional[Self], idServer):
+	def validateType(self, typ:Optional, idServer):
+		"""
+		:param typ: A *MObject* proposed as the supertype of this *MObject*.
+		:type typ: Optional[Self]
+		"""
 		if not (self.tgmodel.topNode is None or self.tgmodel.topRelation is None): 
 			# we are not being deserialized and this isn't topNode or topRelation
 			if typ == None:
@@ -111,7 +141,7 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 		
 	### ATTRIBUTES #######################################################################
 
-	def getAttrParents(self) -> list[Attributes]:
+	def getAttrParents(self) -> List[Attributes]:
 		top = self.getTop()
 		if self == top:
 			return []
@@ -170,7 +200,7 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 			
 	### Semantics ########################################################################
 	
-	def isa(self, nodeType:Optional[Union[Self, list[Self]]]=None) -> Union[bool, list[Self]]:
+	def isa(self, nodeType=None) -> Union[bool, list]:
 		"""
 		Check if this *MObject* is an isa-decendent of *nodeType* as related through
 		some chain of isa-relations. Or, if *nodeType* is *None*, then return a tree-list
@@ -182,7 +212,8 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 			flatten this tree-list to a simple list using *treeFlatten()*\ .
 			* *MObject*: return True iff *nodeType* is a isa-parent of this *MObject*.
 			* *[MObject]*: return True iff EVERY element of *nodeType* is a isa-parent of this *MObject*.
-		:return: a bool or a tree-list as above.
+		:type: nodetype: Optional[Union[Self, List[Self]]]
+		:return: a bool or a tree-list as above. Type: Union[bool, List[Self]]
 		"""
 		if nodeType is None:
 			if self in [self.tgmodel.topNode, self.tgmodel.topRelation]: return [self]
@@ -207,7 +238,7 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 						return True
 			return False
 		
-	def isparent(self, nodeType:Optional[Union[Self, list[Self]]]=None) -> Union[bool, list[Self]]:
+	def isparent(self, nodeType=None) -> Union[bool, list]:
 		"""
 		Check if this *MObject* is an immediate isa-child of *nodeType* as related through
 		a single isa-relation. Or, if *nodeType* is *None*, then return a tree-list
@@ -218,7 +249,8 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 			* None: return a list of all the isa-parents of this *MObject*\ .
 			* *MObject*: return True iff *nodeType* is a isa-parent of this *MObject*\ .
 			* *[MObject]*: return True iff EVERY element of *nodeType* is a isa-parent of this *MObject*\ .
-		:return: a bool or a tree-list as above.
+		:type nodeType: Optional[Union[Self, List[Self]]]
+		:return: a bool or a tree-list as above. Type: Union[bool, List[Self]]
 		"""
 		if nodeType is None:
 			ret = []
@@ -239,7 +271,7 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 						return True
 			return False
 		
-	def isRelatedTo(self, relType, toNode:Self=None, _omit:set=set()) -> set[Self]:
+	def isRelatedTo(self, relType, toNode=None, _omit:set=set()) -> set:
 		"""
 		Check if this *MObject* is related to *nodeType* as related through
 		some chain of relations that are subtypes of *reltype*. Or, if *nodeType* is *None*, 
@@ -260,9 +292,10 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 			that is a subtype of *relType*. 
 			* *MObject*: return True iff *toNode* is related to this *MObject* through
 			some chain of relations that are subtypes of *relType*\ .
+		:type toNode: Self
 		:param _omit: Should never be used. Used ONLY by relational properties to prevent
 			infinite recursion in following relation chains.
-		:return: Depends on the *ToNode* argument, as above.
+		:return: Depends on the *ToNode* argument, as above. Type: set[Self]
 		"""
 		from tygra.mrelations import MRelation
 		assert isinstance(relType, MRelation), f'MObject.isRelatedTo() [MObject]: Argument relType must be a MRelation or list of MRelations, but got argument of type {type(relType).__name__}.'
@@ -286,11 +319,13 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 			return set(result) 
 	
 	@abstractmethod	
-	def getTop(self) -> Self:
+	def getTop(self):
 		"""
 		Subclasses must implement this method to return the Top object for their class.
 		Used in *self.getAttrParents* to return this object's *Attributes* object if 
 		there is no other parent.
+		
+		:return: An object of the of this object's class. Type: Self.
 		"""
 		pass
 	
