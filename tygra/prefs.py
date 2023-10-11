@@ -57,7 +57,7 @@ class Pref(Generic[T], object):
 		"""
 		self.owner = owner
 		self.propertyName = propertyName
-		if kind.startswith("choices:") or kind in ["text"]:
+		if kind.startswith("choices:") or kind in ["text", "int", "bool"]:
 			self.kind = kind
 		else:
 			raise AttributeError("Pref.__init__(): Unknown kind: {kind}")
@@ -65,8 +65,14 @@ class Pref(Generic[T], object):
 		self.help = help
 		self.validatorFunc = validatorFunc
 		self.pythonType = pythonType
-		if self.pythonType is None and (kind.startswith("choices:") or kind=="text"):
-			self.pythonType = str
+		if self.pythonType is None:
+			if kind.startswith("choices:") or kind=="text":
+				self.pythonType = str
+			elif kind == "int":
+				self.pythonType = int
+			elif kind == "bool":
+				self.pythonType = bool
+			
 		val = getattr(self.owner, self.propertyName) # may throw AttributeError
 		if self.pythonType is not None and not isinstance(val, self.pythonType):
 			raise TypeError(f'Pref.__init__(): for property "{self.propertyName}", given property type {self.pythonType.__name__} does not match actual type of owner\'s property value, {type(val).__name__}.')
@@ -96,12 +102,22 @@ class Pref(Generic[T], object):
 		:return: The value (or corrected value) iff *value* is a valid value for this Pref. The default implementation
 			just returns *value* if *value* is an instance of T, otherwise None.
 		
-		This method can do one of three things: **reject** the value by returning None, **accept** the value by returning
-		the value, or **modify** the value if there is an obvious change to make it acceptable (eg: if T is *int* and the
+		This method can do one of three things:
+		
+		- **reject** the value by returning None, 
+		- **accept** the value by returning the value, or 
+		- **modify** the value if there is an obvious change to make it acceptable (eg: if T is *int* and the
 		value is the *str* "5", it might return the *int* 5. 
 		"""
 		if self.validatorFunc is None:
-			return value if isinstance(value, self.pythonType) else None
+			if isinstance(value, self.pythonType):
+				return value
+			try:
+				value = self.pythonType(value)
+				return value
+			except:
+				return None
+#			return self.value if isinstance(value, self.pythonType) else None
 		else:
 			return self.validatorFunc(value)
 	
@@ -170,6 +186,12 @@ class Prefs:
 		self.prefs:List[Pref] = []
 		
 	def save(self):
+		"""
+		Saves preferences **and** for each open file, brings up an "save file"
+		dialog to give the user a chance to save the file before closing. Then
+		saves each of files and the window geometry for it's file window and
+		each of its open view windows.
+		"""
 		from tygra.typedgraphs import TygraContainer, TGView
 		topElem = et.Element(self.xmlTag)
 		topElem.set("version", "0")
@@ -177,7 +199,9 @@ class Prefs:
 		# open files
 		openFiles = et.Element("openfiles")
 		for tgc in TygraContainer._instances:
-			if tgc.filename is None: continue
+			tgc.saveFile() 
+			if tgc.filename is None:
+				continue
 			fileInfo = et.Element("file")
 			fileInfo.set("name", os.path.abspath(tgc.filename))
 			fileInfo.set("geometry", tgc.geometry())
@@ -230,7 +254,7 @@ class Prefs:
 			found = False
 			for p in self.prefs:
 				if p.propertyName == elem.tag:
-					ret[elem.tag] = util.xmlUnescape(p.unserialize(elem.text))
+					ret[elem.tag] = p.unserialize(util.xmlUnescape(elem.text))
 					found = True
 					break
 			if not found:
@@ -281,7 +305,7 @@ class Prefs:
 		"""
 		:param propertyName: The string name of property in *owner*.
 		:param owner: The owner of the this preference item.
-		:param kind: The type used by the editor to make an edit box.  One of "text","choices:*[:*...]",...
+		:param kind: The type used by the editor to make an edit box.  One of "text","choices:*[:*...]","int","bool"...
 		:param userName: The name to use in the preferences editor GUI.
 		:param help: The help text to present in the tooltip in the editor GUI.
 		:param validatorFunc: A function to replace :meth:`Pref.validate()`\ .
@@ -291,6 +315,10 @@ class Prefs:
 		typ = Any
 		if kind.startswith("choices:") or kind=="text":
 			typ = str
+		if kind == "int":
+			typ = int
+		if kind == "bool":
+			typ = bool
 		self.prefs.append(Pref[typ](propertyName, owner, kind, userName=userName,
 							help=help, validatorFunc=validatorFunc, 
 							pythonType=pythonType))
@@ -369,8 +397,18 @@ class PrefsEditor(tk.Toplevel):
 				editor['values'] = pref.kind.split(':')[1:]
 				editor.state(["readonly"])
 				setattr(pref, "tkVar", var) # now pref has a new property holding the variable
+			elif pref.kind == 'int':
+				var = tk.StringVar(value=pref())
+				checkWrapper = (self.winfo_toplevel().register(lambda v, pref=pref, var=var: self.checkEntry(v,pref,var)), '%P')
+				editor = ttk.Entry(self, textvariable=var, validate="focusout", validatecommand=checkWrapper)
+				setattr(pref, "tkVar", var) # now pref has a new property holding the variable
+			elif pref.kind == 'bool':
+				var = tk.StringVar(value=pref())
+				checkWrapper = (self.winfo_toplevel().register(lambda v, pref=pref, var=var: self.checkEntry(v,pref,var)), '%P')
+				editor = ttk.Checkbutton(self, variable=var, onvalue='True', offvalue='False')
+				setattr(pref, "tkVar", var) # now pref has a new property holding the variable
 			else:
-				print(f'PrefsEditor.show(): Unknow kind "{pref.kind}".')
+				print(f'PrefsEditor.show(): Unknown kind "{pref.kind}".')
 			if editor is not None:
 				editor.grid(column=cEdit, row=i, sticky='EW', padx=0, pady=0)
 			i += 1				

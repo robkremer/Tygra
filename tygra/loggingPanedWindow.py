@@ -28,7 +28,9 @@ import sys
 import os
 import traceback
 from tygra.util import play
+import tygra.util as util
 from pickle import NONE
+import inspect
 
 class LoggingPanedWindow(tk.PanedWindow):
 	"""
@@ -108,32 +110,6 @@ class LoggingPanedWindow(tk.PanedWindow):
 		if "borderwidth" not in kwargs: kwargs["borderwidth"] = 0
 		super().__init__(parent, **kwargs)
 		
-		# set up the internal frames within the PanedWindow.
-		self.appFrame = frame(self)
-		self.appFrame.pack(fill=tk.BOTH if fixedAppFrame else tk.BOTH, side=tk.TOP, expand=False if fixedAppFrame else True)
-		self.textArea = tk.Text(self, state='disabled', wrap='none', width=80, height=visibleLines, borderwidth=0)#ttk.Labelframe(self.panedWindow, text='Pane1')#, width=100, height=100)
-		self.textArea.pack(fill=tk.BOTH, side=tk.TOP, expand=True)
-		self.pack(fill=tk.BOTH, expand=True)
-		stretch = 'never' if fixedAppFrame else 'always'
-		sticky = 'new' if fixedAppFrame else 'news'
-		self.add(self.appFrame, stretch=stretch, sticky=sticky)#'always', 'first', 'last', 'middle', and 'never'.
-		self.paneconfigure(self.appFrame, stretch=stretch)
-		stretch = 'always' if fixedAppFrame else 'never'
-		sticky = 'news' if fixedAppFrame else 'new'
-		self.add(self.textArea, stretch=stretch, sticky=sticky)
-		self.paneconfigure(self.textArea, stretch=stretch)
-		
-		self.textArea.tag_config("traceback"    , foreground="purple")
-		self.textArea.tag_config("error"        , foreground="red")
-		self.textArea.tag_config("normal"       , foreground="black")
-		self.textArea.tag_config("warning"      , foreground="brown")
-		self.textArea.tag_config("informational", foreground="grey")
-		self.textArea.tag_config("debug"        , foreground="green")
-		self.textArea.tag_config("errorTag"     , foreground="red"  , font=self.textArea.cget("font")+" 0 bold")
-		self.textArea.tag_config("warningTag"   , foreground="brown", font=self.textArea.cget("font")+" 0 bold")
-		self.textArea.tag_config("stdout"       , foreground="black", font=self.textArea.cget("font")+" 0 italic")
-		self.textArea.tag_config("stderr"       , foreground="red"  , font=self.textArea.cget("font")+" 0 bold italic")
-
 		# set up the class's properties (mostly from parameters...)
 		self.maxLines = maxLines
 		self.visibleLines = visibleLines
@@ -143,7 +119,31 @@ class LoggingPanedWindow(tk.PanedWindow):
 		self.soundError = soundError
 		self.lastTraceback = "<No traceback recorded>"
 		self.tracebackCount = 0
+		self.fixedAppFrame = fixedAppFrame
+		self.appFrame = None
 
+		# set up the internal frames within the PanedWindow.
+		self.textArea = tk.Text(self, state='disabled', wrap='none', width=80, height=visibleLines, borderwidth=0)#ttk.Labelframe(self.panedWindow, text='Pane1')#, width=100, height=100)
+		self.textArea.pack(fill=tk.BOTH, side=tk.TOP, expand=True)
+		self.pack(fill=tk.BOTH, expand=True)
+		self.textArea.tag_config("traceback"    , foreground="purple", font="Courier 0")
+		self.textArea.tag_config("error"        , foreground="red")
+		self.textArea.tag_config("normal"       , foreground="black")
+		self.textArea.tag_config("warning"      , foreground="brown")
+		self.textArea.tag_config("informational", foreground="grey")
+		self.textArea.tag_config("debug"        , foreground="green")
+		self.textArea.tag_config("errorTag"     , foreground="red"  , font=self.textArea.cget("font")+" 0 bold")
+		self.textArea.tag_config("warningTag"   , foreground="brown", font=self.textArea.cget("font")+" 0 bold")
+		self.textArea.tag_config("stdout"       , foreground="black", font="Courier 0 italic")
+		self.textArea.tag_config("stderr"       , foreground="red"  , font="Courier 0 bold italic")
+
+		stretch = 'always' if fixedAppFrame else 'never'
+		sticky = 'news' if fixedAppFrame else 'new'
+		self.add(self.textArea, stretch=stretch, sticky=sticky)
+		self.paneconfigure(self.textArea, stretch=stretch)
+
+		self.setAppFrame(None if frame is None else frame(self))
+		
 		# deal with capturing stdout and stderr (param captureStdOutput)
 		self.realStdout = sys.stdout
 		self.realStderr = sys.stderr
@@ -161,11 +161,11 @@ class LoggingPanedWindow(tk.PanedWindow):
 		for f in self.logFiles:
 			if not isinstance(f, TextIOWrapper):
 				if not isinstance(f, LoggingPanedWindow.StdoutRedirector):
-					self.write(f'LoggingPanedWindow.__init__(): Unaccepted type "{type(f).__name__}" for "logFiles" argument.', level=-1)
+					self.write(f'Unaccepted type "{type(f).__name__}" for "logFiles" argument.', level=-1)
 				bad.append(f)
 				continue
 			if not f.writable():
-				self.write(f'LoggingPanedWindow.__init__(): Got a file in "logFiles" argument that does not appear to be writable.', level=-1)
+				self.write(f'Got a file in "logFiles" argument that does not appear to be writable.', level=-1)
 				bad.append(f)
 		for f in bad: self.logFiles.remove(f)
 		
@@ -181,6 +181,22 @@ class LoggingPanedWindow(tk.PanedWindow):
 					 1: "warning",
 					 2: "informational",
 					 3: "debug"}
+
+	def setAppFrame(self, frame:Optional[tk.Frame]):
+		if self.appFrame is not None:
+			self.forget(self.appFrame)
+			self.appFrame.destroy()
+		
+		if frame is not None:
+			self.appFrame = frame
+		else:
+			self.appFrame = tk.Frame(self)
+		self.appFrame.pack(fill=tk.BOTH if self.fixedAppFrame else tk.BOTH, side=tk.TOP, expand=False if self.fixedAppFrame else True)
+		
+		stretch = 'never' if self.fixedAppFrame else 'always'
+		sticky = 'new' if self.fixedAppFrame else 'news'
+		self.add(self.appFrame, before=self.textArea, stretch=stretch, sticky=sticky)#'always', 'first', 'last', 'middle', and 'never'.
+		self.paneconfigure(self.appFrame, stretch=stretch)
 		
 	@staticmethod
 	def _getLevel(obj):
@@ -204,7 +220,7 @@ class LoggingPanedWindow(tk.PanedWindow):
 		ret = self.maxLevel
 		level = self._getLevel(level)
 		if level < 0:
-			self.write("LoggingPanedWindow.setMaxLevel(): Cannot set level at < 0 (normal). Using 0.", level="error")
+			self.write("Cannot set level at < 0 (normal). Using 0.", level="error")
 			level = 0
 		self.maxLevel = level
 		return ret
@@ -256,7 +272,9 @@ class LoggingPanedWindow(tk.PanedWindow):
 			prefix = "DEBUG: "
 		else:
 			prefix = ""
-
+			
+		method = "" if level in [0,2] else (util.getCallerIdInfoStr()+": ")
+		
 		output = f'{prefix}{msg}'
 		
 		if exception is not None:
@@ -268,7 +286,7 @@ class LoggingPanedWindow(tk.PanedWindow):
 			output += m
 			msg += m
 
-		self.textArea.insert('end', msg, (LoggingPanedWindow.levelToTag[level],))
+		self.textArea.insert('end', f'{msg}', (LoggingPanedWindow.levelToTag[level],))
 
 		if exception is not None:
 			self.tracebackCount += 1
@@ -278,6 +296,10 @@ class LoggingPanedWindow(tk.PanedWindow):
 			self.textArea.tag_bind(tracebackTag, "<Button-1>", tracebackCallback)
 			self.textArea.insert('end', ' [traceback]')
 			self.textArea.tag_add(tracebackTag, "end-11c", "end-2c")
+			
+		if len(method) > 0:
+			indent = "    " if exception is not None else "  "
+			self.textArea.insert('end', f'\n{indent}in {method}', (LoggingPanedWindow.levelToTag[level],))
 
 		self._finish()
 				
@@ -285,6 +307,9 @@ class LoggingPanedWindow(tk.PanedWindow):
 		for f in self.logFiles:
 			if (f is sys.stdout or f is self.realStdout) and level<0:
 				f = self.realStderr
+			indent = "    " if exception is not None else "  "
+			if len(method) > 0:
+				output += f'\n{indent}in {method}'
 			f.write(f'{output}\n')
 			if exception is not None:
 				f.write(f'{self.lastTraceback}\n')

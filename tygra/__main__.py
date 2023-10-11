@@ -21,6 +21,8 @@
 #################################################################################
 import os
 import sys
+import traceback
+
 try:
 	from tygra.typedgraphs import TygraContainer
 except:
@@ -63,7 +65,8 @@ def startup(filename:Optional[str]=None, **kwargs):
 							view = tgc.openView(mRec.viewRecords[vrec.id].viewData)
 							view.winfo_toplevel().geometry(vrec.geometry)
 			except Exception as ex:
-				print(f'Unexpected exception opening previously opened file ("{filename}"): {type(ex).__name__}: ({ex}).')
+				sys.stderr.write(traceback.format_exc()+"\n")
+				sys.stderr.write(f'Unexpected exception opening previously opened file ("{filename}"): {type(ex).__name__}: ({ex}).\n')
 	except Exception as ex:
 		print(f'Can\'t open prefs file: {prefs.prefsFileName}: {type(ex).__name__}: {ex}.')
 		

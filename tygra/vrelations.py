@@ -247,13 +247,13 @@ class VRelation(VNode):
 		
 	### PERSISTENCE ######################################################################
 
-	def xmlRepr(self) -> et.Element:
+	def serializeXML(self) -> et.Element:
 		"""
 		Returns the representation of this object as an Element object.
-		Implementors should call *super().xmlRepr()* **first** as this top-level method
+		Implementors should call *super().serializeXML()* **first** as this top-level method
 		will construct the Element itself.
 		"""
-		elem = super().xmlRepr()
+		elem = super().serializeXML()
 		elem.set('fromNode', str(self.fromNode.idString))
 		elem.set('toNode', str(self.toNode.idString))
 		elem.set('floating', str(self._floatingAnchor))
@@ -267,29 +267,33 @@ class VRelation(VNode):
 		tgview = addrServer.idLookup(elem.get('tgview'))
 		args.append(tgview)
 		
+		idStr = elem.get('id')
+		id = IDServer.getLocalID(idStr) if idStr else None
+
 		fromNode = elem.get('fromNode')
 		try:
 			fromNode = addrServer.idLookup(fromNode) if fromNode!=None and fromNode!="" else None
 		except KeyError:
-			print(f'VRelation.getArgs(): addr fault on fromNode, using {fromNode}.', level="warning")
+			print(f'WARNING: VRelation.getArgs(): addr fault on {idStr} for fromNode, using string "{fromNode}" in place of address.')
 		args.append(fromNode)
 		
 		toNode = elem.get('toNode')
 		try:
 			toNode = addrServer.idLookup(toNode) if toNode!=None and toNode!="" else None
 		except KeyError:
-			print(f'WARNING: VRelation.getArgs(): addr fault on toNode, using {toNode}.', level="warning")
+			print(f'WARNING: VRelation.getArgs(): addr fault on {idStr} for toNode, using string "{toNode}" in place of address.')
 		args.append(toNode)
 
 		model = elem.get('model')
+		exStr = None
 		try:
 			model = addrServer.idLookup(model) if model!=None and model!="" else None
 		except KeyError as ex:
-			raise AttributeError(f'Failed to instantiate model {model} ({type(ex).__name__}: {ex})')
+			exStr = f'Failed to instantiate model {model} ({type(ex).__name__}: {ex})'
+		if exStr is not None:
+			raise AttributeError(exStr)
 		args.append(model)
 
-		idStr = elem.get('id')
-		id = IDServer.getLocalID(idStr) if idStr else None
 		kwargs["_id"] = id
 		kwargs["idServer"] = tgview
 		
@@ -298,12 +302,12 @@ class VRelation(VNode):
 		
 		return args, kwargs
 	
-	def xmlRestore(self, elem: et.Element, addrServer:AddrServer):
+	def unserializeXML(self, elem: et.Element, addrServer:AddrServer):
 		"""
 		This object is partially constructed, but we need to restore this class's bits.
 		Implementors should call *super().xmsRestore()* at some point.
 		"""
-		super().xmlRestore(elem, addrServer)
+		super().unserializeXML(elem, addrServer)
 
 	### ATTRIBUTES #######################################################################
 
@@ -355,7 +359,7 @@ class VRelation(VNode):
 							self.ptToMySide  [0]-3, self.ptToMySide  [1]-3, self.ptToMySide  [0]+3, self.ptToMySide  [1]+3))
 				self.tgview.itemconfigure(self.toDotID, outline=color, fill="white")
 		except Exception as ex:
-			self.tgview.logger.write(f"VRelation.redraw(): Exception ({ex}), probably due to partial construction.", level="warning", exception=ex)
+			self.tgview.logger.write(f"Exception ({ex}), probably due to partial construction.", level="warning", exception=ex)
 # 			raise ex
 		self._redrawExecuting = False
 

@@ -134,7 +134,7 @@ class VNode(VObject):
 			if self.model.attrs["type"] or self.model.system:
 				self.decorators["typeMarker"] = TypeMarker(self)
 		except Exception as ex:
-			self.tgview.logger.write(f"VNode.makeDecorators(): failed to make 'typeMarker': {type(ex).__name__}: {ex}.", level="warning", exception=ex)
+			self.tgview.logger.write(f"failed to make 'typeMarker': {type(ex).__name__}: {ex}.", level="warning", exception=ex)
 
 # 	SHAPES = ["RoundedRectangle", "Rectangle", "Oval"]
 
@@ -188,13 +188,13 @@ class VNode(VObject):
 
 	### PERSISTENCE ######################################################################
 
-	def xmlRepr(self) -> et.Element:
+	def serializeXML(self) -> et.Element:
 		"""
 		Returns the representation of this object as an Element object.
-		Implementors should call *super().xmlRepr()* **first** as this top-level method
+		Implementors should call *super().serializeXML()* **first** as this top-level method
 		will construct the Element itself.
 		"""
-		elem = super().xmlRepr()
+		elem = super().serializeXML()
 		elem.set('boundingBox', str(self.boundingBox()))
 		return elem
 
@@ -224,14 +224,14 @@ class VNode(VObject):
 		
 		return args, kwargs
 	
-	def xmlRestore(self, elem: et.Element, addrServer:AddrServer):
+	def unserializeXML(self, elem: et.Element, addrServer:AddrServer):
 		"""
 		This object is partially constructed, but we need to restore this class's bits.
 		Implementors should call *super().xmsRestore()* at some point.
 		"""
 # 		if self.id != None:
 # 			addrServer.idRegister(self.idServer.getIDString(self.id), self)
-		super().xmlRestore(elem, addrServer)
+		super().unserializeXML(elem, addrServer)
 
 	### ATTRIBUTES #######################################################################
 
@@ -273,7 +273,7 @@ class VNode(VObject):
 			if name == 'aspectRatio':
 				self.aspectRatio(value)
 		except Exception as ex:
-			self.tgview.logger.write(f'VNode.notifyAttrChanged(): got except with "{name}": "{value}". Probably due to partially constructed VNode.', level="warning", exception=ex)
+			self.tgview.logger.write(f'got except with "{name}": "{value}". Probably due to partially constructed VNode.', level="warning", exception=ex)
 				
 	### DECORATORS #######################################################################
 
@@ -369,13 +369,13 @@ class VNode(VObject):
 						for s in self.tgview.selected.copy():
 							if s is not self: s.selected(False)
 					self.tgview.selected.add(self)
-			else: # setting not selected
+			elif self.decorators is not None: # setting not selected
 				if "selected" in self.decorators:
 					self.decorators["selected"].delete()
 					assert "selected" not in self.decorators
 					self.redraw()
 					self.tgview.selected.discard(self)
-		return "selected" in self.decorators
+		return "selected" in self.decorators if self.decorators is not None else None
 
 #				if self.selected():
 #					if (s&0x18) == 0: # the mac <cmd> key is NOT pressed
@@ -393,7 +393,7 @@ class VNode(VObject):
 			try:
 				newShape = self.strToShape(c, bb)
 			except Exception as ex:
-				self.tgview.logger.write(f'WARNING: VNode.shape(): Shape "{c}" is not known.', level="warning", exception=ex)
+				self.tgview.logger.write(f'Shape "{c}" is not known.', level="warning", exception=ex)
 			if newShape is not None:
 				self.killBindings()
 				oldShape = self._shape
@@ -573,7 +573,9 @@ class VNode(VObject):
 	
 	def makeMenu(self) -> tk.Menu:
 		m = tk.Menu(self.tgview)
-# 		editable = not self.model.system and self.tgview.isModelEditor
+		if app.DEBUG_MENUS:
+			m.add_command(label=f'{self.idString} -> {self.model.idString}', state=tk.DISABLED)
+			m.add_separator()
 		editable = self.tgview.isModelEditor
 		if editable:
 			self.addModelEditingMenuItems(m)
@@ -848,14 +850,14 @@ class VNode(VObject):
 						done = True
 						break
 				if not done:
-					self.tgview.logger.write(f'VNode.notifyModelChanged() [{self}]: Got a "del rel" operation for "{modelObj}" that isn\'t one of my relations {self.relations}.', level='warning')
+					self.tgview.logger.write(f'Got a "del rel" operation for "{modelObj}" that isn\'t one of my relations {self.relations}.', level='warning')
 # 			if not hasattr(self, "delrel123"):
 # 				unhandled = True
 # 				self.delrel123 = True
 		else:
 			raise NotImplementedError(f'VNode.notifyModelChanged(): operation "{modelOperation}" not implemented.') 
 		if unhandled:
-			self.tgview.logger.write(f'VNode.notifyModelChanged(): operation "{modelOperation}" not implemented.', level='warning') 
+			self.tgview.logger.write(f'operation "{modelOperation}" not implemented.', level='warning') 
 
 	### Debugging support ################################################################
 	

@@ -137,11 +137,11 @@ class Attributes(PO):
 			if kind not in TYPES:
 				raise TypeError(f'Attributes.Item.__init__(): Unknown kind "{kind}" for attribute name "{key}".')
 			if kind == 'choices':
-				if validator is None:
+				if self.validator is None:
 					if not (isinstance(value, list) and len(value) > 0):
 						raise TypeError(f'Attributes.Item.__init__(): Cannot infer validator for kind "choices" unless value is a list (for attribute name "{key}).".')
 					self.value, self._choices = self._doChoicesList2ValAndList(value)
-					validator = self._choiceValidator
+					self.validator = self._choiceValidator
 			self.kind = kind
 			
 		def _doChoicesList2ValAndList(self, choices:List[str]) -> Tuple[str,list]:
@@ -176,7 +176,7 @@ class Attributes(PO):
 					
 		### Item: PERSISTENCE ############################################################
 	
-		def xmlRepr(self) -> et.Element:
+		def serializeXML(self) -> et.Element:
 			elem = et.Element(type(self).__name__)
 # 			elem.set("name", name)
 			elem.set("key", str(self.key))
@@ -227,19 +227,13 @@ class Attributes(PO):
 		
 			return args, kwargs
 			
-		def xmlRestore(self, elem: et.Element, addrServer:AddrServer):
+		def unserializeXML(self, elem: et.Element, addrServer:AddrServer):
 			"""
 			This object is partially constructed, but we need to restore this class's bits.
 			Implementors should call *super().xmsRestore()* at some point.
 			"""
-			super().xmlRestore(elem, addrServer)
+			super().unserializeXML(elem, addrServer)
 			
-# 			if self.kind == 'choices':
-# 				assert isinstance(self.value, list)
-# 				assert len(self.value) > 0
-# 				self.value, self._choices = _doChoicesList2ValAndList(self.value)
-# 				self.validator = self._choiceValidator
-	
 	### CONSTRUCTOR ######################################################################
 
 	def __init__(self, owner:Optional[AttrOwner]=None):
@@ -257,10 +251,10 @@ class Attributes(PO):
 			
 	### PERSISTENCE ######################################################################
 	
-	def xmlRepr(self) -> et.Element:
+	def serializeXML(self) -> et.Element:
 		elem = et.Element(type(self).__name__)
 		for _,v in self.attrs.items():
-			elem.append(v.xmlRepr()) #k))
+			elem.append(v.serializeXML()) #k))
 		return elem
 	
 	@classmethod
@@ -270,19 +264,19 @@ class Attributes(PO):
 
 		return args, kwargs
 	
-	def xmlRestore(self, elem: et.Element, addrServer:AddrServer):
+	def unserializeXML(self, elem: et.Element, addrServer:AddrServer):
 		"""
 		This object is partially constructed, but we need to restore this class's bits.
 		Implementors should call *super().xmsRestore()* at some point.
 		"""
-		super().xmlRestore(elem, addrServer)
+		super().unserializeXML(elem, addrServer)
 		items = elem.findall("./Item")
-#		print(f'Attributes.xmlRestore(): restoring {len(items)} items.')
+#		print(f'Attributes.unserializeXML(): restoring {len(items)} items.')
 		for subelem in items:
 # 			name = subelem.get("name")
 			item = PO.makeObject(subelem, addrServer, Attributes.Item)
 			self.attrs[item.key] = item
-#			print(f'Attributes.xmlRestore(): restored {name}.')
+#			print(f'Attributes.unserializeXML(): restored {name}.')
 
 	### OBSERVERS ########################################################################
 
@@ -463,7 +457,7 @@ class Attributes(PO):
 						if cumulativeRecord is None: cumulativeRecord = v
 					if v.default is not None and key not in self.attrs:
 						self.attrs[key] = Attributes.Item(key, v.default, final=v.final, editable=True, \
-								kind=v.kind, default=v.default)
+								kind=v.kind, default=v.default, validator=v.validator)
 						return self._get(key, includeLocals=includeLocals, includeInherited=includeInherited)
 					if cumulativeRecord is not None:
 						if isinstance(v.value, Iterable):

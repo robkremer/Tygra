@@ -56,20 +56,20 @@ class VObject(PO, at.AttrObserver, ModelObserver): #, at.AttrOwner
 
 	### PERSISTENCE ######################################################################
 
-	def xmlRepr(self) -> et.Element:
+	def serializeXML(self) -> et.Element:
 		"""
 		Returns the representation of this object as an Element object.
-		Implementors should call *super().xmlRepr()* **first** as this top-level method
+		Implementors should call *super().serializeXML()* **first** as this top-level method
 		will construct the Element itself.
 		"""
-		elem = super().xmlRepr()
+		elem = super().serializeXML()
 		elem.set('tgview', self.tgview.idServer.getIDString(self.tgview.id))
 		elem.set('model', self.model.idString)
 		return elem
 
-	def xmlRestore(self, elem: et.Element, addrServer:AddrServer):
+	def unserializeXML(self, elem: et.Element, addrServer:AddrServer):
 		"""
 		This object is partially constructed, but we need to restore this class's bits.
 		Implementors should call *super().xmsRestore()* at some point.
 		"""
-		super().xmlRestore(elem, addrServer)
+		super().unserializeXML(elem, addrServer)

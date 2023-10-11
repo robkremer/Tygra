@@ -44,3 +44,6 @@ RESERVED_ID = 255
 "The number of ID's to be considered 'system ids', not allocated to user nodes and relations."
 
 SYS_ATTRIBUTES = ["fillColor", "borderColor", "textColor", "shape", "label", "type", "aspectRatio", "minSize"]
+
+DEBUG_MENUS = True
+"When true adds debug items to menus."

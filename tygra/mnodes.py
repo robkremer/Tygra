@@ -47,13 +47,13 @@ class MNode(MObject):
 
 	### PERSISTENCE ######################################################################
 
-	def xmlRepr(self) -> et.Element:
+	def serializeXML(self) -> et.Element:
 		"""
 		Returns the representation of this object as an Element object.
-		Implementors should call *super().xmlRepr()* **first** as this top-level method
+		Implementors should call *super().serializeXML()* **first** as this top-level method
 		will construct the Element itself.
 		"""
-		elem = super().xmlRepr()
+		elem = super().serializeXML()
 		return elem
 
 	@classmethod
@@ -70,12 +70,12 @@ class MNode(MObject):
 		
 		return args, kwargs
 	
-	def xmlRestore(self, elem: et.Element, addrServer:AddrServer):
+	def unserializeXML(self, elem: et.Element, addrServer:AddrServer):
 		"""
 		This object is partially constructed, but we need to restore this class's bits.
 		Implementors should call *super().xmsRestore()* at some point.
 		"""
-		super().xmlRestore(elem, addrServer)
+		super().unserializeXML(elem, addrServer)
 
 	### MISC #############################################################################
 

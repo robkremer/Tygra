@@ -36,6 +36,7 @@ from inspect import isabstract
 from math import ceil
 import os
 import subprocess
+import inspect
 
 
 
@@ -150,7 +151,7 @@ class PO(ABC):
 	"""
 	Subclasses should all implement the following signatures:
 
-		def xmlRepr(self) -> et.Element:
+		def serializeXML(self) -> et.Element:
 			- Serialize to an xml Element the object.
 		
 		@classmethod
@@ -164,7 +165,7 @@ class PO(ABC):
 			  Called before the object to be unserialized is constructed and the values are 
 			  used in it's construction.
 	
-		def xmlRestore(self, elem: et.Element, addrServer:AddrServer):
+		def unserializeXML(self, elem: et.Element, addrServer:AddrServer):
 			- Called just after an object is constructed, and is used to clean up anything
 			  from the constructor specific to unserialization.
 	"""
@@ -174,24 +175,25 @@ class PO(ABC):
 		Initialize the persistent object by registering the IDServer and getting this
 		objects's self.id.
 		
-		:param idServer: If present, indicates whether or not this object has an id, that is whether pointers 
-				to the object has a lookup address in files (this you can't store pointers to this
+		:param idServer: If present, indicates whether or not this object has an id. That is, whether pointers 
+				to the object has a lookup address in files (thus you can't store pointers to this
 				object, just whole copies of it).
-		:param _id: ** This parameter should NEVER be used except for persistent storage.**
+		:param _id: ** This parameter should NEVER be used except for persistent storage.** *_id*
+				should only be non-None if the object is being read from persisten storage.
 		"""
 		self.idServer = idServer
 		if not isinstance(self, IDServer): # if this object is also an IDServer, it should have already got an id
-			if _id == None: # this object is being created for the first time, as opposed to read from a file
-				if idServer: # this is a registered object
+			if _id is None: # this object is being created for the first time, as opposed to read from a file
+				if idServer is not None: # this is a registered object
 					self.id = idServer.nextID()
-				else:
+				else: # this is an unregistered objects (eg: Attributes object)
 					self.id = None
 			else: # this object is being restored from persistent store (a file)
-				if idServer: # this is a registered object
+				if idServer is not None: # this is a registered object
 					self.id = _id
 					idServer.nextID(_recoveredID=_id)
 				else:
-					raise TypeError(f"PO.__init__(): it's inconsistent for an unregistered object for have an id. In this case, {_id}")
+					raise TypeError(f"PO.__init__(): it's inconsistent for an unregistered object to have an id. In this case, {_id}")
 		
 	@property
 	def idString(self) -> Optional[str]:
@@ -239,16 +241,16 @@ class PO(ABC):
 				addrServer.idRegister(ret.idServer.getIDString(ret.id), ret)
 		except AttributeError: # We have to assume if this object isn't keeping an id then it's not expecting to have a pointer to it.
 			pass
-		ret.xmlRestore(elem, addrServer)
+		ret.unserializeXML(elem, addrServer)
 
 		if typ!=None and not isinstance(ret, typ):
 			raise TypeError(f"PO.makeObject(): class {type(ret).__name__} of contructed object is not a subtype of constraining argument typ '{typ.__name__}'")
 		return ret
 
-	def xmlRepr(self) -> et.Element:
+	def serializeXML(self) -> et.Element:
 		"""
 		Returns the representation of this object as an Element object.
-		Implementors should call *super().xmlRepr()* **first** as this top-level method
+		Implementors should call *super().serializeXML()* **first** as this top-level method
 		will construct the Element itself.
 		"""
 		elem = et.Element(type(self).__name__)
@@ -266,7 +268,7 @@ class PO(ABC):
 		"""
 		pass
 	
-	def xmlRestore(self, elem: et.Element, addrServer:AddrServer):
+	def unserializeXML(self, elem: et.Element, addrServer:AddrServer):
 		"""
 		This object is partially constructed, but we need to restore this class's bits.
 		Implementors should call *super().xmsRestore()* at some point.
@@ -564,6 +566,35 @@ def allConcreteSubclasses(cls) -> set:
 	subclasses = allSubclasses(cls)
 	return set([c for c in subclasses if not isabstract(c)])
 	
+def getCallerIdInfoStr(stack:int=1, includeArgs=True, methodFirst=False) -> str:
+	"""
+	:param stack: An integer indicating how far back in the call stack to go. The
+		default is 1, which indicates the caller of this method's caller.
+	:return: A string of the form "[<class>.]<method>([self=<self>]) [line <lineno>]".
+	"""
+	curframe = inspect.currentframe()
+	calframe = inspect.getouterframes(curframe, 2)
+	caller = calframe[stack+1]
+	method = caller[3]
+	lineNo = caller[2]
+	file = os.path.basename(caller[1])
+	argStr = ""
+	if includeArgs:
+		argvalues = inspect.getargvalues(caller[0])
+		args:list[tuple[str, Any]] = []
+		for name in argvalues[0]:
+			args.append((name,argvalues.locals[name]))
+		for k,v in args:
+			argStr += f', {k}={v}'
+		if len(argStr)>2: argStr = argStr[2:]
+	if "self" in caller.frame.f_locals:
+		slf = caller.frame.f_locals["self"]
+		clas = type(slf).__name__
+		if len(argStr) == 0:
+			argStr = "" if str(slf).startswith(".") else ("self="+str(slf))
+		return f'{clas}.{method}({argStr}) [{file}:{lineNo}]'
+	else:
+		return f'{method}({argStr}) [{file}:{lineNo}]'
 
 def getCaller():
 	# surround with a try block with "finally: del current_frame"

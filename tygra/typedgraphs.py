@@ -47,18 +47,18 @@ from math import sqrt
 import gc
 import xml.etree.ElementTree as et
 from ast import literal_eval
-from typing import Any, Optional, Type, Union, Tuple, Callable, Iterable, TypeVar, Generic, Dict, List
-from tygra import prefs
+from typing import Any, Optional, Union, Tuple, Callable, Iterable, Dict, List
 import webbrowser
 import pathlib
 from urllib.parse import urlparse
 import urllib
 from pip._vendor import requests
+import tygra
 
 sys.path.append(os.path.dirname(__file__))
 from tygra.weaklist import WeakList
-from tygra.util import PO, IDServer, AddrServer, Categories, bindRightMouse, eventEqual, flattenPairs,\
-	s_SHIFT, normalizeRect
+from tygra.util import PO, IDServer, AddrServer, Categories, bindRightMouse, \
+	eventEqual, flattenPairs, s_SHIFT, normalizeRect, getCallerIdInfoStr
 from tygra.mobjects import MObject, ModelObserver
 from tygra.vobjects import VObject
 from tygra.mnodes import MNode
@@ -69,6 +69,17 @@ import tygra.app as app
 from tygra.loggingPanedWindow import LoggingPanedWindow 
 from tygra.prefs import Prefs, Pref
 			
+		
+class _TempLogger: # A logger to use only until the constructor is far enough to use the real one.
+	def write(self, s, **kwargs): 
+		prefix = ""
+		out = sys.__stdout__
+		if "level" in kwargs:
+			prefix = kwargs["level"] + ": "
+			if prefix == "error: ":
+				out = sys.__stderr__
+		method = getCallerIdInfoStr()
+		out.write(f'{prefix}: {s}\n  in {method}\n')
 		
 ##########################################################################################
 ############################## class TygraContainer ################################
@@ -102,6 +113,7 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 			information for the program.
 		:param goemetry: The initial geometry string for the window.
 		"""
+		self.logger = _TempLogger()
 		super().__init__()
 		TygraContainer._instances.append(self)
 		self.option_add('*tearOff', tk.FALSE)
@@ -109,6 +121,7 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 		self.config(menu=self.menu)
 		self.createcommand('tk::mac::ShowPreferences', self.showPreferencesDialog)
 		self.createcommand('tk::mac::ShowHelp', self.showHelp)
+		self.createcommand('::tk::mac::Quit', self.onQuit)
 		self.protocol("WM_DELETE_WINDOW", self.onClosing)
 		IDServer.__init__(self, None)
 		AddrServer.__init__(self)
@@ -121,25 +134,22 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 			
 		# Do the file dialog thing
 		self.filename = None
-		if filename != '<new>': # special tag to force creation of a brand new model
-#			self.filename = None
-#			pass
-#		else:
+		if filename == '<new>': # special tag to force creation of a brand new model
+			self.filename = None
+			tree = None
+		else:
 			self.filename, tree = self.openFile(filename)
-#		elif filename is None: # no filename, use the open-file dialog
-#			self.filename = None
-#			self.filename, tree = self.openFile(None)
-#		else: # we were given a filename, open it (openFile() only uses a dialog in case the filename is bad)
-#			self.filename = filename
-#			self.filename, tree = self.openFile(filename)
 
 		# We have a filename, so build the actual interface
-		if self.filename is not None: # we have filename, read it.
-			self.logger = LoggingPanedWindow(self, lambda p, tree=tree: self.makeRecordsFrame(p, tree=tree), fixedAppFrame=True)
+		self.logger = LoggingPanedWindow(self, None, fixedAppFrame=True)
+		self.logger.setAppFrame(self.makeRecordsFrame(self.logger, tree=tree))		
+
+#		if self.filename is not None: # we have filename, read it.
+#			self.logger.setAppFrame(self.makeRecordsFrame(self.logger, tree=tree))
 			
-		# Create a brand new model (either we were requested "<new>" or the user declined to open a file)
-		else: # create a brand new model and view
-			self.logger = LoggingPanedWindow(self, self.makeRecordsFrame, fixedAppFrame=True)
+		# -or- Create a brand new model (either we were requested "<new>" or the user declined to open a file)
+#		else: # create a brand new model and view
+#			self.logger.setAppFrame(self.makeRecordsFrame(self.logger))
 					
 		self.title(f'{app.APP_LONG_NAME}{(": "+os.path.basename(self.filename)) if self.filename is not None else ""}')
 		self.logger.write(f"{app.APP_LONG_NAME} file window initialized.")
@@ -154,6 +164,10 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 				validatorFunc=self.validateHelpURL, pythonType=str)
 		self.prefs.bind("maxLevelStr", self.logger, "choices:normal:warning:informational:debug",
 				"Message filter", help="The maximum severity level to display in the message pane.")
+		self.prefs.bind("maxLines", self.logger, "int",
+				"Max lines in log", help="The maximum number of lines to save in the message pane.")
+		self.prefs.bind("DEBUG_MENUS", app, "bool",
+				"Debug menus", help="Add debug options to menus.")
 		try:
 			self.prefs.read()
 		except Exception as ex:
@@ -169,8 +183,7 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 				if self.helpURL is None or len(self.helpURL.strip())==0 or self.validateHelpURL(self.helpURL) is None:
 					self.prefs["helpURL"] = "" # force an aggressive search
 			except Exception as ex:
-				self.owner.logger.write(f'TygraContainer.setHelpURL(): Exception setting self.helpURL.', level="error")
-		
+				self.owner.logger.write(f'Exception setting self.helpURL.', level="error")
 		
 	def destroy(self) -> None:
 		TygraContainer._instances.remove(self)
@@ -203,9 +216,9 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 		if str(helpURL).startswith("file:///"):
 			if not os.path.exists(helpURL[7:].replace("%20"," ")):
 				try:
-					self.owner.logger.write(f'TygraContainer.setHelpURL.validate(): Can\'t find file {helpURL[7:].replace("%20"," ")}.', level="error")
+					self.owner.logger.write(f'Can\'t find file {helpURL[7:].replace("%20"," ")}.', level="error")
 				except:
-					sys.__stderr__.write(f'TygraContainer.setHelpURL.validate(): Can\'t find file {helpURL[7:].replace("%20"," ")}.\n')
+					sys.__stderr__.write(f'Can\'t find file {helpURL[7:].replace("%20"," ")}.\n')
 				helpURL = None
 		else:
 			ok = True
@@ -219,9 +232,9 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 				ok = False
 			if not ok:
 				try:
-					self.owner.logger.write(f'TygraContainer.setHelpURL.validate(): Can\'t find URL {helpURL}: Status code: {statusCode}.', level="error")
+					self.owner.logger.write(f'Can\'t find URL {helpURL}: Status code: {statusCode}.', level="error")
 				except:
-					sys.__stderr__.write(f'TygraContainer.setHelpURL.validate(): Can\'t find URL or invalid URL {helpURL}: Status code: {statusCode}.\n')
+					sys.__stderr__.write(f'Can\'t find URL or invalid URL {helpURL}: Status code: {statusCode}.\n')
 				helpURL = None
 		return helpURL
 
@@ -229,25 +242,23 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 
 	class ViewRecord:
 		"""A veru simple record class for view information."""
-		def __init__(self, viewName:tk.StringVar, viewData):
+		def __init__(self, master, initName:str, viewData):
 			assert 	viewData is None or \
 					isinstance(viewData, et.Element) or \
 					isinstance(viewData, TGView)
-			if not isinstance(viewName, tk.StringVar):
-				viewName = tk.StringVar(value=str(viewName))
-			self.viewName = viewName
+			assert isinstance(initName, str)
+			self.viewName = tk.StringVar(master, value=initName)
 			self.viewData = viewData
 	class ModelRecord:
 		"""A very simple record class for Model information."""
-		def __init__(self, modelName:tk.StringVar, modelData, viewRecords:dict=dict()):
+		def __init__(self, master, initName:str, modelData, viewRecords:dict=dict()):
 			assert 	modelData is None or isinstance(modelData, TGModel)
-			if not isinstance(modelName, tk.StringVar):
-				modelName = tk.StringVar(value=str(modelName))
-			self.modelName = modelName
+			assert isinstance(initName, str)
+			self.modelName = tk.StringVar(master, value=initName)
 			self.modelData = modelData
 			self.viewRecords = viewRecords
 
-	def makeRecordsFrame(self, parent=None, tree:et.Element=None) -> tk.Frame:
+	def makeRecordsFrame(self, parent=None, tree:Optional[et.Element]=None) -> tk.Frame:
 		"""
 		Make a frame showing the list of models and the sublists of thier views.
 		
@@ -268,7 +279,7 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 		
 		if tree is None:
 			if self.directory is None: # case 1 (new file)
-				self.doNewModel()
+				self.doNewModel(refreshRecordsFrame=False) # don't want to refresh
 			else: # case 3 (refreshing after a directory change)
 				pass
 		else: # case 2 (reading in from a file)
@@ -288,17 +299,16 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 		
 		# set up the actual rows of Entries and Buttons
 		row = 0
-		self.openButtons = []
+#		self.openButtons = []
 		for modelID, modelRecord in self.directory.items():
 			e = tk.Entry(self.topFrame, textvariable=modelRecord.modelName)
 			e.grid(row=row, columnspan=2, column=0, ipadx=1, ipady=1, padx=1, pady=1, sticky="NEWS")
 			b = tk.Button(self.topFrame, text="model...", \
 					command=lambda mr=modelRecord, r=row, id=modelID: self.doModelButton(mr, r, id)) #self.newViewButton(mr))
 			b.grid(row=row, column=2, ipadx=1, ipady=1, padx=1, pady=1, sticky="NEWS")
-			# tk.Grid.rowconfigure(self.topFrame, row, weight=1)
 			self.topFrame.rowconfigure(row, weight=1)
 
-			self.openButtons.append(b)
+#			self.openButtons.append(b)
 			row += 1
 			for viewID, viewRecord in modelRecord.viewRecords.items():
 				l = tk.Label(self.topFrame, text=' ')
@@ -308,9 +318,8 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 				b = tk.Button(self.topFrame, text="view...", \
 						command=lambda vr=viewRecord, r=row, id=viewID: self.doViewButton(vr, r, id))
 				b.grid(row=row, column=2, ipadx=1, ipady=1, padx=1, pady=1, sticky="NEWS")
-#				tk.Grid.rowconfigure(self.topFrame, row, weight=1)
 				self.topFrame.rowconfigure(row, weight=1)
-				self.openButtons.append(b)
+#				self.openButtons.append(b)
 				row += 1
 				
 		return self.topFrame
@@ -334,10 +343,10 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 			for model in directoryElem.iterfind("model"):
 				id = model.get('id')
 				modelName = model.get('name')
-				self.directory[id] = TygraContainer.ModelRecord(tk.StringVar(value=modelName), None, dict())
+				self.directory[id] = TygraContainer.ModelRecord(self, modelName, None, dict())
 				for view in model.iterfind('view'):
 					self.directory[id].viewRecords[view.get('id')] = \
-						TygraContainer.ViewRecord(tk.StringVar(value=view.get('name')), None)
+						TygraContainer.ViewRecord(self, view.get('name'), None)
 
 	def readModelsAndViews(self, root:et.Element):
 		"""
@@ -355,7 +364,7 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 			if id in self.directory:
 				self.directory[id].modelData = obj
 			else:
-				self.directory[id] = TygraContainer.ModelRecord(tk.StringVar(value=id), obj, dict())
+				self.directory[id] = TygraContainer.ModelRecord(self, id, obj, dict())
 		for view in views:
 			modelID = view.get('model')
 			model = self.directory[modelID]
@@ -364,7 +373,7 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 			if id in model.viewRecords:
 				model.viewRecords[id].viewData = view
 			else:
-				model.viewRecords[id] = TygraContainer.ViewRecord(tk.StringVar(value=id), view)
+				model.viewRecords[id] = TygraContainer.ViewRecord(self, id, view)
 		self.nextID(maxID)
 		
 	### Directory popup menus and helpers ################################################
@@ -377,6 +386,9 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 		m = tk.Menu(self.topFrame)
 		m.add_command(label="new view", command=lambda mr=modelRecord: self.doNewView(mr))
 		m.add_command(label="delete model", command=lambda mr=modelRecord, id=id: self.doDeleteModel(mr, id))
+		if app.DEBUG_MENUS:
+			m.add_separator()
+			m.add_command(label="validate", command=modelRecord.modelData.validate)
 		x += self.topFrame.winfo_rootx()
 		y += self.topFrame.winfo_rooty()
 		m.post(x+5, y+10)
@@ -423,21 +435,21 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 		layouts.IsaHierarchyHorizontalCompressed(view)()
 		
 	# TODO: bug: for some reason the .idString names don't show up in the tk.Entry's boxes. They do when it's read in from XML...
-	def doNewModel(self):
+	def doNewModel(self, refreshRecordsFrame=True):
 		"""
 		Creates a brand new model, updating *self.directory*, then calls *self.makeRecordsFrame()*
 		to update the records in the *TypedGraphsContainter* window. 
 		"""
 		model = TGModel(self, self)
 		view = TGView(None, self, model)
-		viewRecord = {view.idString: TygraContainer.ViewRecord(
-			tk.StringVar(value=view.idString), view)}
+		viewRecord = {view.idString: TygraContainer.ViewRecord(self, view.idString, view)}
 		if self.directory is None:
 			self.directory = dict()
-		self.directory[model.idString] = TygraContainer.ModelRecord( \
-				tk.StringVar(value=model.idString),
+		self.directory[model.idString] = TygraContainer.ModelRecord(self, \
+				model.idString,
 				model, viewRecord)
-		self.makeRecordsFrame()
+		if refreshRecordsFrame:
+			self.makeRecordsFrame()
 		
 	# TODO: when a view id deleted, there is nothing done about checking for and closing its view window.
 	def doDeleteView(self, rec:ViewRecord, id:str):
@@ -450,7 +462,7 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 				mr.viewRecords.pop(id)
 				self.makeRecordsFrame()
 				return
-		self.logger.write(f'TGContainer.deDeleteModel(): Can\'t find view id "{id}" to remove.')
+		self.logger.write(f'Can\'t find view id "{id}" to remove.')
 		
 	def doDeleteModel(self, modelRecord:ModelRecord, id:str):
 		"""
@@ -461,8 +473,32 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 		self.makeRecordsFrame()
 		
 	def onClosing(self):
-		self.prefs.save()
+		"""
+		:param quitting: if True and this is the last file window to be closed, 
+			calls *self.prefs.save()* to save the preferences and the open 
+			window (a geometry info); if False calls *self.saveFile()*\ .
+		The "close" button on the file window has been chosen, so (user optionally)
+		save the file, and if this the last window standing, then save the 
+		preferences too. 
+		"""
+		if len(TygraContainer._instances) < 2: 
+			self.prefs.save()
+		else:
+			self.saveFile()
 		self.destroy()
+		
+	def onQuit(self):
+		"""
+		The "quit application" menu item has been chosen. Saves the prefs (which
+		itself uses the "save file" dialog to save all file data) the calls the
+		*onClosing()* method on each of the files with the *quitting* flag to
+		prevent the *onClosing() methods from using the "save file" dialogs again.
+		"""
+		self.prefs.save()
+		files = []
+		for c in TygraContainer._instances:
+			c.destroy()
+		exit(0) # would exit anyway, but here just in cose
 		
 	def setModelName(self, model, name:str):
 		"""Sets the entry for *model* to *name* in *self.directory*."""
@@ -550,23 +586,23 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 	def notifyViewDeleted(self, view):
 		"""
 		The view is notifying us that it's been deleted. Remove the view from *self.views*, and change
-		*self.directory* to refer to the view by it's element (using *view.xmlRepr()*), rather than
+		*self.directory* to refer to the view by it's element (using *view.serializeXML()*), rather than
 		its *TGView* representation.
 		"""
 		if view in self.views:
 			self.views.remove(view)
 		else:
-			self.logger.write(f'TygraContainer.notifyViewDeleted(): Trying to delete an unregisterd view {view.idString}.', level='warning')
+			self.logger.write(f'Trying to delete an unregisterd view {view.idString}.', level='warning')
 		modelID = view.model.idString
 		viewRecord = self.directory[modelID].viewRecords[view.idString]
-		viewRecord.viewData = view.xmlRepr()
+		viewRecord.viewData = view.serializeXML()
 		
 	def openNewFileInstance(self, filename:Optional[str]=None):
 		"""
 		Open a new instance of a *TypedgraphsContainer* and call it *mainloop()*.
 		"""
 		root = TygraContainer(filename)
-		root.mainloop()
+#		root.mainloop()
 
 	def saveFile(self):
 		"""
@@ -583,7 +619,7 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 					filetypes=[('TG', f'*.{app.APP_FILE_EXTENSION}'), ('XML', '*.xml')],
 					defaultextension=f'*.{app.APP_FILE_EXTENSION}',
 					initialfile=file)
-		if filename == None:
+		if filename is None or filename == "":
 			return
 		topElem = et.Element("typedgraphs")
 		topElem.set('id', app.CONTAINER_ID)
@@ -602,10 +638,10 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 			dir.append(mElem)
 		topElem.append(dir)
 		for m in self.models:
-			x = m.xmlRepr()
+			x = m.serializeXML()
 			topElem.append(x)
 		for v in self.views:
-			x = v.xmlRepr()
+			x = v.serializeXML()
 			topElem.append(x)
 		for mid, mr in self.directory.items():
 			for vid, vr in mr.viewRecords.items():
@@ -616,7 +652,7 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 						break
 				if not saved:
 					if isinstance(vr.viewData, TGView):
-						x = vr.viewData.xmlRepr()
+						x = vr.viewData.serializeXML()
 					elif isinstance(vr.viewData, et.Element):
 						x = vr.viewData
 					else:
@@ -628,15 +664,6 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 		self.filename = filename
 		self.logger.write(f'Saved to {self.filename}', level='info')
 		
-	def closeAllFiles(self):
-		prefs = Prefs()
-		prefs.save()
-		for tgc in list(TygraContainer._instances):
-			try:
-				tgc.destroy()
-			except:
-				pass
-
 	### Menu Bar menus and helpers #######################################################
 
 	def makeMenu(self) -> tk.Menu:
@@ -652,13 +679,11 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 		filemenu = tk.Menu(menubar)
 		newmenu = tk.Menu(filemenu)
 		newmenu.add_command(label="New File", command=lambda: self.openNewFileInstance('<new>'))
-		newmenu.add_command(label="New Model", command=lambda: self.doNewModel())
+		newmenu.add_command(label="New Model", command=lambda: self.doNewModel()) # want to refresh
 		filemenu.add_cascade(label="New", menu=newmenu)
 		filemenu.add_command(label="Open...", command=self.openNewFileInstance)
 		filemenu.add_command(label="Save...", command=self.saveFile)
-		filemenu.add_command(label="Close All", command=self.closeAllFiles)
 		menubar.add_cascade(label="File", menu=filemenu)
-		
 		
 		# MacOS automatically fills this in for us...
 		windowmenu = tk.Menu(menubar, name='window')
@@ -681,15 +706,15 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 				if os.path.exists(url[7:].replace("%20"," ")):
 					webbrowser.open(url, new=0, autoraise=True)
 				else:
-					self.logger.write(f'TygraContainer.showHelp(): Can\'t find file {url[7:]}.', level="error")
+					self.logger.write(f'Can\'t find file {url[7:]}.', level="error")
 			else:
 				r = requests.head(url)
 				if r.status_code == 200:
 					webbrowser.open(url, new=0, autoraise=True)
 				else:
-					self.logger.write(f'TygraContainer.showHelp(): Can\'t find URL {url}: Status code {r.status_code}.', level="error")
+					self.logger.write(f'Can\'t find URL {url}: Status code {r.status_code}.', level="error")
 		except Exception as ex:
-			self.logger.write(f"TygraContainer.showHelp(): cannot open {url}.", level="error", exception=ex)
+			self.logger.write(f"cannot open {url}.", level="error", exception=ex)
 		
 	def showAbout(self):
 		"""
@@ -713,9 +738,6 @@ class TygraContainer(tk.Tk, IDServer, AddrServer):
 ################################## class TGModel #########################################
 ##########################################################################################
 
-class _TempLogger: # A logger to use only until the constructor is far enough to use the real one.
-	def write(self, s, **kwargs): sys.__stdout__.write(s + ("" if len(kwargs) == 0 else (" "+str(kwargs))) + '\n')
-		
 class TGModel(PO, IDServer):
 	"""
 	A non-user interfaced container class for a graph *model*\ . It contains objects of
@@ -741,6 +763,8 @@ class TGModel(PO, IDServer):
 			
 	def __init__(self, container:TygraContainer, idServer:IDServer=None, 
 				addrServer:AddrServer=None, _id:Optional[int]=None):
+		self.container:TygraContainer = container
+		container.models.append(self)
 		self._tempLogger = _TempLogger()
 		# call the IDServer constructor
 		IDServer.__init__(self, parent=container, _id=_id)
@@ -748,8 +772,6 @@ class TGModel(PO, IDServer):
 		# call the PO (persistent object) constructor
 		PO.__init__(self, idServer=idServer if idServer else container, _id=_id)
 		
-		self.container:TygraContainer = container
-		container.models.append(self)
 		
 		self._nodes:List[MNode] = []
 		self._relations:List[MRelation] = []
@@ -773,7 +795,7 @@ class TGModel(PO, IDServer):
 #		self.logger.write(f'topNode: {self.topNode.idString}', level='debug')
 
 		# (1,1)
-		self.topRelation = MRelation(self, frm=self.topNode, to=self.topNode, idServer=self)
+		self.topRelation = MRelation(self, frm=self.topNode, to=self.topNode, typ=None, idServer=self)
 		self.topRelation.attrs["fillColor"] = "white"
 		self.topRelation.attrs["borderColor"] = "black"
 		self.topRelation.attrs["textColor"] = "black"
@@ -823,6 +845,17 @@ class TGModel(PO, IDServer):
 
 		self.nextID(app.RESERVED_ID)
 		
+	def validate(self):
+		errors = 0
+		for n in self._nodes:
+			errors += n.validate()
+		for n in self._relations:
+			errors += n.validate()
+		if errors == 0:
+			self.logger.write(f'No errors.', level="normal")
+		else:
+			self.logger.write(f'{errors} validation errors.', level="error")
+		
 	def register(self, obj: Union[MRelation, MNode]):
 		if   isinstance(obj, MRelation):
 			self._relations.append(obj)
@@ -839,25 +872,25 @@ class TGModel(PO, IDServer):
 				self._relations.remove(obj)
 				self.notifyObservers(obj, "del rel")
 			else:
-				self.logger.write(f'TGModel.unregister(): attempt to remove unknown MRelation {obj.stringID}, "{obj.attrs["label"]}".', level='warning')
+				self.logger.write(f'attempt to remove unknown MRelation {obj.stringID}, "{obj.attrs["label"]}".', level='warning')
 		elif isinstance(obj, MNode):
 			if obj in self._nodes:
 				self._nodes.remove(obj)
 				self.notifyObservers(obj, "del node")
 			else:
-				self.logger.write(f'TGModel.unregister(): attempt to remove unknown MNode {obj.stringID}, "{obj.attrs["label"]}".', level='warning')
+				self.logger.write(f'attempt to remove unknown MNode {obj.stringID}, "{obj.attrs["label"]}".', level='warning')
 		else:
-			raise TypeError(f'TGModel.unregister(): unexpected type {type(obj).__name__}')
+			raise TypeError(f'unexpected type {type(obj).__name__}')
 
 	### Persistence ######################################################################
 
-	def xmlRepr(self) -> et.Element:
+	def serializeXML(self) -> et.Element:
 		"""
 		Returns the representation of this object as an Element object.
-		Implementors should call *super().xmlRepr()* **first** as this top-level method
+		Implementors should call *super().serializeXML()* **first** as this top-level method
 		will construct the Element itself.
 		"""
-		elem = PO.xmlRepr(self) # selective "super()"
+		elem = PO.serializeXML(self) # selective "super()"
 		
 		# save nodes
 		nodes = et.Element("nodes")
@@ -865,10 +898,10 @@ class TGModel(PO, IDServer):
 		for n in self._nodes:
 			if n.id >= app.RESERVED_ID:
 				try:
-					x = n.xmlRepr()
+					x = n.serializeXML()
 					nodes.append(x)
 				except Exception as ex:
-					self.logger.write(f'TGModel.xmlRepr(): Unexpected exception calling xmlRepr() on node "{n}". Node not saved.', level="error", exception=ex)
+					self.logger.write(f'Unexpected exception calling serializeXML() on node "{n}". Node not saved.', level="error", exception=ex)
 			
 		# save relations
 		rels = et.Element("relations")
@@ -876,10 +909,10 @@ class TGModel(PO, IDServer):
 		for r in self._relations:
 			if r.id >= app.RESERVED_ID:
 				try:
-					x = r.xmlRepr()
+					x = r.serializeXML()
 					rels.append(x)
 				except Exception as ex:
-					self.logger.write(f'TGModel.xmlRepr(): Unexpected exception calling xmlRepr() on relation "{r}". Relation not saved.', level="error", exception=ex)
+					self.logger.write(f'Unexpected exception calling serializeXML() on relation "{r}". Relation not saved.', level="error", exception=ex)
 			
 		return elem
 
@@ -898,14 +931,14 @@ class TGModel(PO, IDServer):
 		
 		return args, kwargs
 	
-	def xmlRestore(self, elem: et.Element, addrServer:AddrServer):
+	def unserializeXML(self, elem: et.Element, addrServer:AddrServer):
 		"""
 		This object is partially constructed, but we need to restore this class's bits.
 		Implementors should call *super().xmsRestore()* at some point.
 		"""
 		self.readingPersistentStore = True
 		try:
-			super().xmlRestore(elem, addrServer)
+			super().unserializeXML(elem, addrServer)
 			
 			# register all the system MObjects with the AddrServer
 			for n in self._nodes+self._relations:
@@ -929,7 +962,7 @@ class TGModel(PO, IDServer):
 					if rel.attrs.get("label", includeInherited=False) == app.ISA:
 						self.isa = rel
 				except Exception as ex:
-					self.logger.write(f'TGModel.xmlRestore(): Exception instantiating {subelem.get("id")}.', level='warning', exception=ex)
+					self.logger.write(f'Exception instantiating {subelem.get("id")}.', level='warning', exception=ex)
 			# in case there were any address-lookup faults, give the relations a chance to fix it.
 			
 			# let the relations finish up
@@ -940,7 +973,7 @@ class TGModel(PO, IDServer):
 					try:
 						r._post__init__(addrServer)
 					except Exception as ex:
-						self.logger.write(f'TGModel.xmlRestore(): exception in _post__init__() of {r.idString}. (Object deleted.)', level='warning', exception=ex)
+						self.logger.write(f'exception in _post__init__() of {r}. (Object will be deleted.)', level='warning', exception=ex)
 						r.delete()
 			for r in self._relations:
 				if r.id < app.RESERVED_ID: continue
@@ -948,7 +981,7 @@ class TGModel(PO, IDServer):
 					try:
 						r._post__init__(addrServer)
 					except Exception as ex:
-						self.logger.write(f'TGModel.xmlRestore(): exception in _post__init__() of {r.idString}. (Object deleted.)', level='warning', exception=ex)
+						self.logger.write(f'exception in _post__init__() of {r}. (Object will be deleted.)', level='warning', exception=ex)
 						r.delete()
 
 
@@ -981,16 +1014,19 @@ class TGModel(PO, IDServer):
 		"""
 		return MNode(self, typ, idServer=self)
 
-	def makeRelation(self, fromNode:MObject, toNode:MObject, typ=None):
+	def makeRelation(self, fromNode:MObject, toNode:MObject, typ:Union[MRelation, List[MRelation]]):
 		"""
 		Return a new relation, unless there already is such a relation, then return that.
 		
 		:param typ:
 		:type typ: Union[Self,List[Self],None]
 		"""
+		assert isinstance(fromNode, MObject)
+		assert isinstance(toNode, MObject)
 		if not isinstance(typ, list):
 			typ = [typ]
 		for t in typ:
+			assert isinstance(t, MRelation)
 			for r in fromNode.relations:
 				if toNode is r.toNode and not r.isIsa and r.isa(t):
 					return r # we already have such a relation
@@ -1212,19 +1248,19 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 
 	def saveFile(self):
 		self.container.saveFile()
-# 		elem = self.xmlRepr()
+# 		elem = self.serializeXML()
 # 		tree = et.ElementTree(element=elem)
 # 		et.indent(tree, space='	 ', level=0)
 # 		tree.write(f"graphs.{app.APP_FILE_EXTENSION}", xml_declaration=True, encoding="utf-8")
 		
 
-	def xmlRepr(self) -> et.Element:
+	def serializeXML(self) -> et.Element:
 		"""
 		Returns the representation of this object as an Element object.
-		Implementors should call *super().xmlRepr()* **first** as this top-level method
+		Implementors should call *super().serializeXML()* **first** as this top-level method
 		will construct the Element itself.
 		"""
-		elem = PO.xmlRepr(self) # selective "super()"
+		elem = PO.serializeXML(self) # selective "super()"
 		elem.set("model", self.model.idString)
 		elem.set("modelEditor", str(self.isModelEditor))
 		elem.set("hiddenCategories", str(list(self.hiddenCategories)))
@@ -1234,14 +1270,14 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 		nodes = et.Element("nodes")
 		elem.append(nodes)
 		for n in self.nodes:
-			x = n.xmlRepr()
+			x = n.serializeXML()
 			nodes.append(x)
 			
 		# save relations
 		rels = et.Element("relations")
 		elem.append(rels)
 		for r in self.relations:
-			x = r.xmlRepr()
+			x = r.serializeXML()
 			rels.append(x)
 			
 		return elem
@@ -1274,14 +1310,14 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 		
 		return args, kwargs
 	
-	def xmlRestore(self, elem: et.Element, addrServer:AddrServer):
+	def unserializeXML(self, elem: et.Element, addrServer:AddrServer):
 		"""
 		This object is partially constructed, but we need to restore this class's bits.
 		Implementors should call *super().xmsRestore()* at some point.
 		"""
 		self.readingPersistentStore = True
 		try:
-			super().xmlRestore(elem, addrServer)
+			super().unserializeXML(elem, addrServer)
 			e = elem.get("modelEditor")
 			self.isModelEditor = literal_eval(e) if e!=None else True
 			nodes = elem.find("nodes")
@@ -1289,7 +1325,7 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 				try:
 					node = self.makeObject(subelem, addrServer, VNode) # The vnodes will enter themselves into self.nodes
 				except Exception as ex:
-					self.logger.write(f'TGView.xmlRestore(): Could not create VNode {subelem.get("id")}: {type(ex).__name__}({"ex"}). Could be a change in the model.', level="warning", exception=ex)
+					self.logger.write(f'Could not create VNode {subelem.get("id")}: {type(ex).__name__}("{ex}"). Could be removal of {subelem.get("model")} in the model.', level="warning", exception=ex)
 			# Now let the nodes actually draw themselves.
 			for n in self.nodes:
 				n._post__init__(addrServer)
@@ -1299,7 +1335,7 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 				try:
 					node = self.makeObject(subelem, addrServer, VRelation) # The vnodes will enter themselves into self.nodes
 				except AttributeError as ex:
-					self.logger.write(f'WARNING: TGView.xmlRestore(): Could not create VRelation {subelem.get("id")}: {type(ex).__name__}("{ex}") Could be a change in the model.', level='warning', exception=ex)
+					self.logger.write(f'Could not create VRelation {subelem.get("id")}: {type(ex).__name__}("{ex}") Could be removal of {subelem.get("model")} in the model.', level='warning', exception=ex)
 			# in case there were any address-lookup faults, give the relations a chance to fix it.
 			deletions = []
 			for r in self.relations:
@@ -1308,7 +1344,7 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 				except KeyError as ex:
 					deletions.append(r)
 			for d in deletions:
-				self.logger.write(f'TGView.xmlRestore(): Deleting VRelation {d.idString} because one of its terminals was probably deleted in the model.', level='warning')
+				self.logger.write(f'Deleting VRelation {d.idString} because one of its terminals was probably deleted in the model.', level='warning')
 				d.delete()
 			
 			for n in self.nodes+self.relations:
@@ -1335,20 +1371,18 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 		self._scrolling = False
 		if self._makingRelationFrom is not None:
 			self.delete(self._makingRelationFrom.lineID)
-#			tags = self.gettags("current") # find selected objects
 			ids = self.find("closest", self.canvasx(event.x), self.canvasy(event.y)) # find selected objects
-			self.logger.write(f"graphs making relation for {ids}", level='info')
-			item = None
+#			self.logger.write(f"graphs making relation for {ids}", level='info')
 			if isinstance(self._makingRelationFrom.node, VRelation):
 				typeList = self.relations
 			elif isinstance(self._makingRelationFrom.node, VNode):
 				typeList = self.nodes
 			else:
 				typeList = []
+			item = None
 			for n in typeList:
 				for id in ids:
 					tags = self.gettags(id)
-					self.logger.write(f"  graphs making relation for {tags}", level='info')
 					if n.tag in tags:
 						item = n # this object is selected
 						break
@@ -1356,6 +1390,7 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 					continue  # only executed if the inner loop did NOT break
 				break  # only executed if the inner loop DID break
 			if item is not None:
+				self.logger.write(f"making relation from {self._makingRelationFrom.node} to {item} of type {self._makingRelationFrom.type}.", level="debug")
 				self.makeRelation(self._makingRelationFrom.node, item, self._makingRelationFrom.type)
 			else:
 				self.logger.write("Relation's toNode must match the being a node/relation with the from Node", level='error')
@@ -1697,7 +1732,7 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 					r = self.makeViewObjectForModelObject(mrel)
 					self.localLayout(r)
 				except Exception as ex:
-					self.logger.write(f'TGView.showAllModel(): Could not instantiate VObject for {type(mrel).__name__} {mrel.idString} "{mrel.attrs["label"]}": {type(ex).__name__}("{ex}")', level='warning', exception=ex)
+					self.logger.write(f'Could not instantiate VObject for {type(mrel).__name__} {mrel.idString} "{mrel.attrs["label"]}": {type(ex).__name__}("{ex}")', level='warning', exception=ex)
 					
 	def makeRelationFrom(self, node:VNode, typ:Optional[MObject]=None):
 		if typ is None or isinstance(typ, MNode) or isinstance(typ, MRelation):
@@ -1722,7 +1757,7 @@ class TGView(tk.Canvas, PO, IDServer, ModelObserver):
 				Isa(self.model, fromNode.model, toNode.model, idServer=self.model)
 			else:
 # 				vrelations.VRelation(self, fromNode, toNode, idServer=self, typ=typ) # create the view relation and the model relation
-				MRelation(self.model, fromNode.model, toNode.model, idServer=self.model, typ=typ)
+				MRelation(self.model, fromNode.model, toNode.model, typ=typ, idServer=self.model)
 		except Exception as ex:
 			tk.messagebox.showerror(app.APP_LONG_NAME, f'{type(ex).__name__}: {ex}')
 # 			raise ex			

@@ -31,6 +31,7 @@ from tygra.util import PO, AddrServer, IDServer
 from tygra.attributes import Attributes
 from tygra.weaklist import WeakList
 import tygra.app as app
+from _ast import Or
 
 
 class ModelObserver(ABC):
@@ -47,10 +48,13 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 	def system(self) -> bool:
 		return self.id < app.RESERVED_ID
 		
-	def __init__(self, tgmodel, typ=None, idServer:IDServer=None, _id:Optional[int]=None):
+	def __init__(self, tgmodel, typ, idServer:IDServer, _id:Optional[int]=None):
 		"""
-		:param typ:
-		:type typ: Union[Self,List[Self],None]
+		:param tgmodel: the model container object.
+		:type tgmodel: TGModel
+		:param typ: The type of this object.
+		:type typ: Union[Self, List[Self], None]
+		
 		"""
 		super().__init__(idServer=idServer, _id=_id)
 		assert self.id is not None
@@ -61,6 +65,8 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 		self.attrs = at.Attributes(owner=self)
 		self.attrs.addObserver(self)
 		from tygra.mrelations import Isa
+		# _id is None only when we are creating this object at runtime (as opposed to reading from persistent store).
+		# (self.id is NOT None at this point though.)
 		if _id is None and not (self.tgmodel.topNode is None or self.tgmodel.topRelation is None) and not isinstance(self, Isa):
 			if not isinstance(typ, list):
 				typ = [typ]
@@ -77,11 +83,52 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 		:type typ: Optional[Self]
 		"""
 		if not (self.tgmodel.topNode is None or self.tgmodel.topRelation is None): 
-			# we are not being deserialized and this isn't topNode or topRelation
+			# this isn't topNode or topRelation
 			if typ == None:
 				raise TypeError("MObject.__init__(): Argument 'type' is required.")
 			if self.isRelation() != typ.isRelation():
 				raise TypeError(f'MObject.__init__(): Argument typ {typ} is a {"relation" if typ.isRelation() else "node"}, which does not match object being created.')
+			
+	def validate(self) -> int:
+		"""
+		:return: The count of errors or inconsistencies in this *MObject*. 
+		
+		Validate the MObject, print any violations to *self.tgmodel.logger*
+		and return the number of violations.
+		
+		.. note:: Validation can only take place AFTER the
+		   MObject is fully constructed with all its ISA relations.
+		   
+		This method checks:
+		
+		- This object has at least one ISA parent
+		- Every parent of this object is a type (as opposed to an individual)
+		"""
+		errors = 0
+		if (    self.isRelation() and ((self is not self.tgmodel.topRelation) and self.tgmodel.topRelation is not None)) or \
+		   (not self.isRelation() and ((self is not self.tgmodel.topNode    ) and self.tgmodel.topNode     is not None)):
+			if self.isRelation() and self.isIsa:
+				# isa relations -- don't have isa-parent
+				pass
+			else:
+				if len(self.isa()) <= 1: # isa includes self...
+					self.tgmodel.logger.write(f'{type(self).__name__} has no ISA parent.', level="error")
+					errors += 1
+				else:
+					# has at least one type via an isa relation
+					pass
+		else:
+			# one of the top objects (T or REL)
+#			self.tgmodel.logger.write(f'{type(self).__name__} is a top object.', level="debug")
+			pass
+		
+		for parent in self.isparent():
+			if not parent.attrs["type"]:
+				self.tgmodel.logger.write(f'parent ({parent}) is not a Type. Nothing can inherit from an Individual.')
+				errors += 1
+
+		return errors
+				
 		
 	def delete(self):
 		self._deleted = True
@@ -89,7 +136,7 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 		#notify the observers and get rid of pointers to them
 		self.notifyObservers('del')
 		if len(self.observers) > 0:
-			self.tgmodel.logger.write(f'MObject.delete() [{self}]: After sending a "del" to observers, they should all have done a removeObserver(). Still have {self.observers}.', level="error")
+			self.tgmodel.logger.write(f'After sending a "del" to observers, they should all have done a removeObserver(). Still have {self.observers}.', level="error")
 		self.observers = None
 		
 		# notify and get rid of relations
@@ -98,10 +145,10 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 			try: # relation might already have been deleted
 				r.notifyNodeDeletion(self)
 			except Exception as ex:
-				self.tgmodel.logger.write("MObject.delete(): Unexpected error in notification:", level="warning", exception=ex)
+				self.tgmodel.logger.write("Unexpected error in notification:", level="warning", exception=ex)
 # 			assert r not in self.tgmodel._relations
 		if len(self.relations) > 0:
-			self.tgmodel.logger.write(f'MObject.delete() [{self}]: After sending notifyNodeDeletion to relations, they should all have deleted themselves and removed themselves from the list. Still have {self.relations}', level="error")
+			self.tgmodel.logger.write(f'After sending notifyNodeDeletion to relations, they should all have deleted themselves and removed themselves from the list. Still have {self.relations}', level="error")
 		self.relations = None
 
 		#tell the container
@@ -111,28 +158,32 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 
 	### PERSISTENCE ######################################################################
 
-	def xmlRepr(self) -> et.Element:
+	def serializeXML(self) -> et.Element:
 		"""
 		Returns the representation of this object as an Element object.
-		Implementors should call *super().xmlRepr()* **first** as this top-level method
+		Implementors should call *super().serializeXML()* **first** as this top-level method
 		will construct the Element itself.
 		"""
-		elem = super().xmlRepr()
+		elem = super().serializeXML()
 		elem.set('tgmodel', self.tgmodel.idServer.getIDString(self.tgmodel.id))
 		elem.set('class', type(self).__name__)
-		self.xmlReprAttrs(elem)
+		self.serializeXMLAttrs(elem) # subclasses my change the say Attributes are represented
 		return elem
 
-	def xmlReprAttrs(self, elem:et.Element):
+	def serializeXMLAttrs(self, elem:et.Element):
+		"""
+		.. note:: This method is separated out of *serializeXML* because subclasses may
+		   choose to implement Attributes differently. Eg: class *Isa*.
+		"""
 		if len(self.attrs.attrs) > 0:
-			elem.append(self.attrs.xmlRepr())
+			elem.append(self.attrs.serializeXML())
 			
-	def xmlRestore(self, elem: et.Element, addrServer:AddrServer):
+	def unserializeXML(self, elem: et.Element, addrServer:AddrServer):
 		"""
 		This object is partially constructed, but we need to restore this class's bits.
 		Implementors should call *super().xmsRestore()* at some point.
 		"""
-		super().xmlRestore(elem, addrServer)
+		super().unserializeXML(elem, addrServer)
 		attrsElem = elem.find('Attributes')
 		if attrsElem:
 			attrs = self.makeObject(attrsElem, addrServer, Attributes)
@@ -176,12 +227,12 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 # 		if observer in self.observers:
 # 			self.observers.remove(observer)
 # 		else:
-# 			self.tgmodel.logger.write(f'MObject.removeObserver() called with an unregistered observer "{observer}" of type {type(observer).__name__}.', level="warning")
+# 			self.tgmodel.logger.write(f'called with an unregistered observer "{observer}" of type {type(observer).__name__}.', level="warning")
 		try:
 			if self.observers is not None: # need this check for the case of self is deleting
 				self.observers.remove(observer)
 		except Exception as ex:
-			self.tgmodel.logger.write(f'MObject.removeObserver() [{self}]: Unexpected exception. Probably called with an unregistered observer "{observer}" of type {type(observer).__name__}.', level="warning", exception=ex)
+			self.tgmodel.logger.write(f'Unexpected exception. Probably called with an unregistered observer "{observer}" of type {type(observer).__name__}.', level="warning", exception=ex)
 		
 	def notifyObservers(self, op, info=None): #, observable=None):
 		if self.observers is not None:
@@ -191,7 +242,7 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 				try:
 					o.notifyModelChanged(self, op, info=info)
 				except Exception as ex:
-					self.tgmodel.logger.write(f'MObject.notifyObservers() [{self}]: Exception in call to notifyModelChanged for observer "{o}"', level="warning", exception=ex)
+					self.tgmodel.logger.write(f'Exception in call to notifyModelChanged for observer "{o}"', level="warning", exception=ex)
 					if hasattr(o, "_deleted") and o._deleted:
 						deletions.append(o)
 						self.tgmodel.logger.write(f'    - object had been marked as deleted, so removing it from observers list.', level="warning")
@@ -222,14 +273,14 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 				if r.isIsa and r.fromNode is self:
 					children = r.toNode.isa()
 					ret += children
-			return [self, ret] if len(ret)>0 else [self]
+			return ret #[self, ret] if len(ret)>0 else [self]
 		elif isinstance(nodeType, list):
 			for nt in nodeType:
 				if not self.isa(nt):
 					return False
 			return True
 		else:
-			assert type(nodeType) == type(self)
+			if not issubclass(type(self), type(nodeType)): return False
 			if nodeType==self: return True
 			if self in [self.tgmodel.topNode, self.tgmodel.topRelation]: return False 
 			for r in self.relations:
@@ -241,7 +292,7 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 	def isparent(self, nodeType=None) -> Union[bool, list]:
 		"""
 		Check if this *MObject* is an immediate isa-child of *nodeType* as related through
-		a single isa-relation. Or, if *nodeType* is *None*, then return a tree-list
+		a single isa-relation. Or, if *nodeType* is *None*, then return a list
 		of ALL immediate isa-parents of this *MObject*.
 
 		:param nodeType: The *MObject* or a list of *MObjects* to serve a type representation
@@ -348,7 +399,7 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 				r.fromNode.notifyAttrChanged(attrsObject, name, value)
 
 	def notifyModelChanged(self, modelObj, modelOperation:str, info:Optional[any]=None):
-		self.tgmodel.logger.write(f'MObject.notifyModelChanged() [{self.idString}]: operation "{modelOperation}".', level='debug') 
+		self.tgmodel.logger.write(f'operation "{modelOperation}".', level='debug') 
 		unhandled = False
 # 		if modelOperation == 'del': 
 # 			pass
@@ -361,14 +412,14 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 						self.notifyObservers(modelOperation, info)
 						break
 			else:
-				self.tgmodel.logger.write(f'MObject.notifyModelChanged(): operation "{modelOperation}" expected a 2-list as info parameter, got info={info} of type {type(info).__name__}', level="error")
+				self.tgmodel.logger.write(f'operation "{modelOperation}" expected a 2-list as info parameter, got info={info} of type {type(info).__name__}', level="error")
 		if modelOperation in ['mod attr', 'add rel', 'del rel', 'del']:
 # 			self.notifyObservers(modelOperation, info, observable=modelObj)
 			pass
 		else:
-			raise NotImplementedError(f'MObject.notifyModelChanged(): operation "{modelOperation}" not implemented.') 
+			raise NotImplementedError(f'operation "{modelOperation}" not implemented.') 
 		if unhandled:
-			self.tgmodel.logger.write(f'MObject.notifyModelChanged(): operation "{modelOperation}" not implemented.', level="warning") 
+			self.tgmodel.logger.write(f'operation "{modelOperation}" not implemented.', level="warning") 
 	
 	def notifyViewDeletion(self, viewObj):
 		# TODO: fill out implementation of notifyViewDeletion() (authorizing?)
@@ -388,7 +439,7 @@ class MObject(PO, at.AttrOwner, at.AttrObserver): #, ModelObserver):
 		if relation in self.relations:
 			self.relations.remove(relation)
 		else:
-			self.tgmodel.logger.write('MObject.notifyRelationDeletion() called with an unregistered relation "{relation}".', level="warning")
+			self.tgmodel.logger.write(f'called with an unregistered relation {relation}.', level="warning")
 			
 		self.notifyObservers('del rel', relation)
 		

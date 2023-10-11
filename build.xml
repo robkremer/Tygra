@@ -6,13 +6,66 @@
   <property name="src" location="tygra"/>
   <property name="build" location="build"/>
   <property name="dist" location="dist"/>
+  <property name="sphinx" location="sphinx"/>
+  <property name="sphinxBuild" location="${sphinx}/build"/>
+  <property name="images" location="images"/>
 	
-  <target name="dist" depends="doc"/>
+  <target name="dist" depends="pyinstaller,doc"/>
 	
-  <target name="doc">
-	<exec executable="make" dir="sphinx" searchpath="true">
+  <target name="doc" description="Produces the documentation directory using sphinx">
+	<exec executable="make" dir="${sphinx}" searchpath="true">
 	  <arg value="html"/>
 	  <env key="PATH" path="/usr/local/bin:/usr/local/sbin:/Library/Frameworks/Python.framework/Versions/3.11/bin"/>
 	</exec>
+  </target>
+	
+  <target name="pyinstaller" depends="doc" 
+  			description="Produces a MacOS tygra.app file containing the Python interpreter">
+	<input message="Please enter the Apple signing identity (obtain from $ security find-identity):"
+  	       addproperty="identity"/>
+  	<exec executable="/usr/local/bin/pyinstaller" dir="${src}">
+	  <arg value="--windowed"/>
+	  <arg value="--name"/>				<arg value="tygra"/>
+  	  <arg value="--add-data"/>			<arg value="${sphinxBuild}/html:html"/>
+      <arg value="--icon"/>				<arg value="${images}/tygra.icns"/>
+  	  <arg value="--noconfirm"/>
+      <arg value="--distpath"/>			<arg value="${dist}"/>
+      <arg value="--specpath"/>			<arg value="${build}"/>
+      <arg value="--workpath"/>			<arg value="${build}"/>
+  	  <!-- to get the identitiy, run $ security find-identity -->
+  	  <arg value="--codesign-identity"/><arg value="${identity}"/>
+	  <arg value="__main__.py"/>
+  	</exec>
+  </target>
+	
+  <target name="dmg" depends="pyinstaller"
+			description="Produces a disk image (.dmg) file containing the .app to be dropped to /Applications.">
+  	<echo>Warning: Can take up to half a miniute.</echo>
+	<exec executable="/usr/local/bin/dmgbuild" dir=".">
+	  <arg value="-s"/>					<arg value="dmgbuild_settings.py"/>
+	  <arg value="tygra install"/>
+	  <arg value="dist/tygra.dmg"/>
+	</exec>
+   </target>
+  	
+  <target name="pyz" description="Produses a tygra.pyz find containing the package. ***Needs work***">
+  	<copy todir="./build/temp/tygra">
+  	  <fileset dir="tygra">
+  	  	<include name="*.py"/>
+  	    <exclude name="/__pycache__"/>
+  	  </fileset>
+  	</copy>
+	<exec executable="python3" dir="./build">
+  	  <arg value="-m"/>
+      <arg value="zipapp"/>
+      <arg value="temp"/>
+      <arg value="--output=tygra"/>
+  	  <arg value="--python=/usr/bin/python3"/>
+	  <!-- arg value="-main=tygra.__main__" -->
+  	</exec>
+  	<exec executable="chmod" dir="./build">
+  	  <arg value="a+x"/>
+  	  <arg value="tygra"/>
+  	</exec>
   </target>
 </project>

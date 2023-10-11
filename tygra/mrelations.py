@@ -42,8 +42,15 @@ class MRelation(MObject):
 		
 	def __init__(self, tgmodel, frm:MNode, to:MNode, typ=None, idServer:IDServer=None, _id:Optional[int]=None):
 		"""
-		:param typ:
+		:param tgmodel: The model container object
+		:type tgmodel: TGModel
+		:param frm: The source node of this relation, must be the same class as *to*\ .
+		:param to: The destination node of this relation, must be the same class as *from*\ .
+		:param typ: A MRelation that acts as the supertype; REQUIRED, but must be none during reading from persistent store.
 		:type typ: Union[Self,List[Self],None]
+		:param IdServer: required.
+		:param _id: DO NOT USE. Reserved for the persistent storage system. *_id* is None if 
+			this constructor is called at runtime, an *int* if called when reading from persistent store.
 		"""
 		self.fromNode = frm
 		self.toNode = to
@@ -60,47 +67,63 @@ class MRelation(MObject):
 				self.fromNode = addrServer.idLookup(self.fromNode)
 			if type(self.toNode) == str:
 				self.toNode = addrServer.idLookup(self.toNode)
-		self.validateReferents() # may raise exceptions
+#		self.validateReferents() # may raise exceptions
+		if self.validate() > 0:
+			raise AttributeError("MRelation._post__init__({self}): Validation failed.")
 		self.fromNode.addRelation(self)
 		self.toNode.addRelation(self)
 		assert self in self.fromNode.relations
 		assert self in self.toNode.relations
+		
+	def validate(self) -> int:
+		errCount = 0
+		errCount += super().validate()
+		errCount += self.validateReferents()
+		return errCount			
 
-	def validateReferents(self):
+	def validateReferents(self) -> bool:
+		errCount = 0
 		if not ((isinstance(self.fromNode, MNode) and isinstance(self.toNode, MNode)) or \
 		        (isinstance(self.fromNode, MRelation) and isinstance(self.toNode, MRelation))): 
-		    raise TypeError(f'MRelation.__init__(): {type(self.fromNode)}, {type(self.toNode)} | fromNode ({type(self.fromNode).__name__}) and toNode ({type(self.toNode).__name__}) must be either both MNodes or both MRelations.')
-		for parent in self.isparent():
+#			raise TypeError(f'MRelation.validateReferents(): {type(self.fromNode)}, {type(self.toNode)} | fromNode ({type(self.fromNode).__name__}) and toNode ({type(self.toNode).__name__}) must be either both MNodes or both MRelations.')
+			self.tgmodel.logger.write(f'{type(self.fromNode)}, {type(self.toNode)} | fromNode ({type(self.fromNode).__name__}) and toNode ({type(self.toNode).__name__}) must be either both MNodes or both MRelations.', level="error")
+			return 1
+		
+		for parent in self.isparent(): # to- and from- nodes must be subtypes of the parents' to- and from- nodes.
 			if not self.toNode.isa(parent.toNode): 
-				raise TypeError(f'MRelation.validateReferents [{self}]: toNode {self.toNode} must be a subtype of {parent.toNode}.')
+#				raise TypeError(f'MRelation.validateReferents [{self}]: toNode {self.toNode} must be a subtype of {parent.toNode}.')
+				self.tgmodel.logger.write(f'toNode {self.toNode} must be a subtype of {parent.toNode}.', level="error")
+				errCount += 1
 			if not self.fromNode.isa(parent.fromNode): 
-				raise TypeError(f'MRelation.validateReferents [{self}]: fromNode {self.fromNode} must be a subtype of {parent.fromNode}.')
-		return True
+#				raise TypeError(f'MRelation.validateReferents [{self}]: fromNode {self.fromNode} must be a subtype of {parent.fromNode}.')
+				self.tgmodel.logger.write(f'fromNode {self.fromNode} must be a subtype of {parent.fromNode}.', level="error")
+				errCount += 1
+		return errCount
 
 	### DESTRUCTOR #######################################################################
 	
 	def delete(self):
-		super().delete()
 		try: 
 			self.fromNode.notifyRelationDeletion(self)
 		except Exception as ex: 
-			self.tgmodel.logger.write(f'MRelation.delete() [{self}]: Unexpected exception calling notifyRelationDeletion() on fromNode "{self.fromNode}"', level='error', exception=ex)
+			self.tgmodel.logger.write(f'Unexpected exception calling notifyRelationDeletion() on fromNode "{self.fromNode}"', level='error', exception=ex)
 		try: 
 			self.toNode  .notifyRelationDeletion(self)
 		except Exception as ex: 
-			self.tgmodel.logger.write(f'MRelation.delete() [{self}]: Unexpected exception calling notifyRelationDeletion() on toNode "{self.toNode}"', level='error', exception=ex)
+			self.tgmodel.logger.write(f'Unexpected exception calling notifyRelationDeletion() on toNode "{self.toNode}"', level='error', exception=ex)
 		self.fromNode = None
 		self.toNode = None
+		super().delete()
 
 	### PERSISTENCE ######################################################################
 
-	def xmlRepr(self) -> et.Element:
+	def serializeXML(self) -> et.Element:
 		"""
 		Returns the representation of this object as an Element object.
-		Implementors should call *super().xmlRepr()* **first** as this top-level method
+		Implementors should call *super().serializeXML()* **first** as this top-level method
 		will construct the Element itself.
 		"""
-		elem = super().xmlRepr()
+		elem = super().serializeXML()
 		assert isinstance(self.fromNode, MObject), f'Unexpected type for fromNode: {type(self.fromNode).__name__}, "{self.fromNode}".'
 		elem.set('fromNode', str(self.fromNode.idString))
 		elem.set('toNode', str(self.toNode.idString))
@@ -135,12 +158,12 @@ class MRelation(MObject):
 		
 		return args, kwargs
 	
-	def xmlRestore(self, elem: et.Element, addrServer:AddrServer):
+	def unserializeXML(self, elem: et.Element, addrServer:AddrServer):
 		"""
 		This object is partially constructed, but we need to restore this class's bits.
 		Implementors should call *super().xmsRestore()* at some point.
 		"""
-		super().xmlRestore(elem, addrServer)
+		super().unserializeXML(elem, addrServer)
 
 	### ATTRIBUTES #######################################################################
 
@@ -153,7 +176,7 @@ class MRelation(MObject):
 		if node in [self.toNode, self.fromNode]:
 			self.delete()
 		else:
-			self.tgmodel.logger.write(f'MRelation.notifyNodeDeletion() [{self}]: Got notification for node "{node}" that isn\'t a fromNode or toNode.', level="warning")
+			self.tgmodel.logger.write(f'Got notification for node "{node}" that isn\'t a fromNode or toNode.', level="warning")
 			
 	### SEMANTICS ########################################################################
 	
@@ -163,14 +186,14 @@ class MRelation(MObject):
 		
 	class SymetricRelation(RelBehaviour):
 		def isRelated(self, relation, toNode):
-			if toNode: # return a bool
+			if toNode is not None: # return a bool
 				return relation.fromNode is toNode
 			else: # return a tree list
 				return [relation.toNode, relation.fromNode]
 				
 	class TransitiveRelation(RelBehaviour):
 		def isRelated(self, relation, toNode):
-			if toNode: # return a bool
+			if toNode is not None: # return a bool
 				for rel in toNode.relations:
 					if relation.isaSibling(rel):
 						if rel.isRelatedTo(toNode): return True
@@ -264,7 +287,7 @@ class Isa(MRelation):
 		return super().system or self.fromNode.system
 		
 	def __init__(self, tgmodel, frm:MNode, to:MNode, idServer:IDServer=None, _id:Optional[int]=None):
-		super().__init__(tgmodel, frm, to, idServer=idServer, _id=_id)
+		super().__init__(tgmodel, frm, to, typ=None, idServer=idServer, _id=_id)
 		
 		if hasattr(self.tgmodel, "isa"): # if the model container has isa, we have the mother ISA existing and this instance isn't it.
 			if Isa.commonAttrs is None:
@@ -281,23 +304,27 @@ class Isa(MRelation):
 				if r.isIsa and r.toNode is t:
 					deletions.append(r)
 		for r in deletions:
-			self.tgmodel.logger.write(f'Isa.__init__(): Deleting redundant relation from "{self.fromNode.attrs["label"]}" ({self.fromNode.idString}) to "{r.toNode.attrs["label"]}" ({r.toNode.idString})', level="info")
+			self.tgmodel.logger.write(f'Deleting redundant relation from "{self.fromNode.attrs["label"]}" ({self.fromNode.idString}) to "{r.toNode.attrs["label"]}" ({r.toNode.idString})', level="info")
 			r.delete()
 
-	def validateReferents(self):
-		super().validateReferents()
-		if not self.toNode.attrs['type']:
-		    raise TypeError(f'MRelation.__init__(): toNode {self.toNode} must be a type, not a individual.')
-		    
+	def validateReferents(self) -> int:
+		errCount = 0
+		errCount += super().validateReferents()
+
 		# Sanity checks
 		# check for redundancy (this relation)
 		frmAncestors = treeFlatten(self.fromNode.isa())[1:] # ancestors without the frm itself
 		if self.toNode in frmAncestors and not self.toNode is self.fromNode: # and frmAncestors[0] != tgmodel.topNode:
-			raise TypeError(f'Isa.__init__(): "{self.fromNode.attrs["label"]}" {self.fromNode.idString} is already a subtype of "{self.toNode.attrs["label"]}" {self.toNode.idString}. {frmAncestors}')
+#			raise TypeError(f'Isa.validateReferents(): "{self.fromNode.attrs["label"]}" {self.fromNode.idString} is already a subtype of "{self.toNode.attrs["label"]}" {self.toNode.idString}. {frmAncestors}')
+			self.tgmodel.logger.write(f'{self.fromNode} is already a subtype of {self.toNode}. {frmAncestors}', level="error")
+			errCount += 1
 		# check for circularity
 		toAncestors = treeFlatten(self.toNode.isa())[1:]# ancestors without the to itself
 		if self.fromNode in toAncestors: # and toAncestors[0] != tgmodel.topNode:
-			raise TypeError(f'Isa.__init__(): This relation would create a circular type hierarchy.')
+#			raise TypeError(f'Isa.validateReferents(): This relation would create a circular type hierarchy.')
+			self.tgmodel.logger.write(f'This relation would create a circular type hierarchy.', level="error")
+			errCount += 1
+		return errCount
 
 	def validateType(self, typ, idServer):
 		pass
@@ -309,7 +336,7 @@ class Isa(MRelation):
 		if self is self.tgmodel.isa: 	return []
 		else:							return [self.tgmodel.isa.attrs]
 
-	def xmlReprAttrs(self, elem:et.Element):
+	def serializeXMLAttrs(self, elem:et.Element):
 		"""
 		Don't save the *attrs* as all the isa's share one *Attributes* (a class variable).
 		"""
